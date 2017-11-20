@@ -1,13 +1,13 @@
 extern crate byteorder;
 
-use self::byteorder::{NativeEndian, WriteBytesExt, NetworkEndian};
+use self::byteorder::{NativeEndian, WriteBytesExt, NetworkEndian, ByteOrder};
 
 use std::iter;
 use std::vec::Vec;
 use std::option::Option;
 use std::result::Result;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum PacketType {
 	Discover,
 	Offer,
@@ -17,9 +17,7 @@ pub enum PacketType {
 }
 
 impl PacketType {
-	fn push_to(&self, buffer: &mut Vec<u8>) {
-		buffer.push(53);
-		buffer.push(0x1);
+	fn push_value(&self, buffer: &mut Vec<u8>) {
 		buffer.push(match self {
 			&PacketType::Discover => 0x1,
 			&PacketType::Offer => 0x2,
@@ -27,6 +25,12 @@ impl PacketType {
 			&PacketType::Ack => 0x5,
 			&PacketType::Nack => 0x6
 		});
+	}
+
+	fn push_to(&self, buffer: &mut Vec<u8>) {
+		buffer.push(53);
+		buffer.push(0x1);
+		self.push_value(buffer);
 	}
 
 	fn from_buffer(buffer: &[u8]) -> Result<Self, String> {
@@ -39,12 +43,12 @@ impl PacketType {
 		}
 
 		match buffer[2] {
-			0x0 => Ok(PacketType::Discover),
-			0x1 => Ok(PacketType::Offer),
-			0x2 => Ok(PacketType::Request),
-			0x4 => Ok(PacketType::Ack),
-			0x5 => Ok(PacketType::Nack),
-			x => Err(format!("Encountered unexpected value for dhcp packet type: {}", buffer[2]))
+			0x1 => Ok(PacketType::Discover),
+			0x2 => Ok(PacketType::Offer),
+			0x3 => Ok(PacketType::Request),
+			0x5 => Ok(PacketType::Ack),
+			0x6 => Ok(PacketType::Nack),
+			x => Err(format!("Encountered unexpected value for dhcp packet type: {}", x))
 		}
 	}
 
@@ -59,7 +63,7 @@ impl PacketType {
 	}
 }
 
-trait HwAddr {
+pub trait HwAddr {
 	fn size() -> u8;
 	fn hwtype() -> u8;
 	fn push_to(&self, &mut Vec<u8>);
@@ -80,38 +84,47 @@ impl HwAddr for EthernetAddr {
 
 	fn from_buffer(buffer: & [u8]) -> Self {
 		let mut array = [0; 6];
-		array.copy_from_slice(buffer);
+		array.copy_from_slice(&buffer[..6]);
 		return EthernetAddr(array);
 	}
 }
 
-#[derive(Debug)]
-pub struct IpAddr (pub [u8;4]);
+#[derive(Debug, PartialEq, Eq)]
+pub struct IPv4Addr (pub [u8;4]);
 
-impl IpAddr {
+impl IPv4Addr {
 	fn push_to(&self, buffer: &mut Vec<u8>) {
 		buffer.extend(self.0.iter());
+	}
+
+	fn from_buffer(buffer: &[u8]) -> Self {
+		let mut array = [0; 4];
+		array.copy_from_slice(&buffer[..4]);
+		return IPv4Addr(array);
 	}
 }
 
 #[derive(Debug)]
 pub enum DhcpOption {
-	SubnetMask(IpAddr), //This should probably be a better type
-	Router(Vec<IpAddr>)
+	SubnetMask(IPv4Addr), //This should probably be a better type
+	Router(Vec<IPv4Addr>),
+	MessageType(PacketType)
 }
 
 impl DhcpOption {
 	fn get_type(&self) -> u8 {
 		match self {
 			&DhcpOption::SubnetMask(_) => 0x1,
-			&DhcpOption::Router(_) => 0x3
+			&DhcpOption::Router(_) => 0x3,
+			&DhcpOption::MessageType(_) => 53,
 		}
 	}
 
 	fn get_size(&self) -> u8 {
 		match self {
 			&DhcpOption::SubnetMask(_) => 4,
-			&DhcpOption::Router(ref vec) => 4 * vec.len() as u8
+			&DhcpOption::Router(ref vec) => 4 * vec.len() as u8,
+			&DhcpOption::MessageType(_) => 1,
 		}
 	}
 
@@ -123,6 +136,7 @@ impl DhcpOption {
 					router.push_to(buffer);
 				}
 			}
+			&DhcpOption::MessageType(ref t) => t.push_value(buffer),
 		}
 	}
 
@@ -130,6 +144,42 @@ impl DhcpOption {
 		buffer.push(self.get_type());
 		buffer.push(self.get_size());
 		self.push_value(buffer);
+	}
+
+	fn subnetmask_from_buffer(buffer: &[u8]) -> Result<Self, String> {
+		if buffer[1] != 4 {
+			return Err("Subnetmask DHCP option size wasn't 4".into());
+		}
+		let addr = IPv4Addr::from_buffer(&buffer[2..]);
+		return Ok(DhcpOption::SubnetMask(addr));
+	}
+
+	fn router_from_buffer(buffer: &[u8]) -> Result<Self, String> {
+		if buffer[1] % 4 != 0 {
+			return Err("Router DHCP option size wasn't a multiple of 4".into());
+		}
+		let mut ret = Vec::with_capacity(buffer[1] as usize / 4);
+		for i in 0..(buffer[1] as usize / 4) {
+			let addr = IPv4Addr::from_buffer(&buffer[2 + 4 * i..]);
+			ret.push(addr)
+		}
+		return Ok(DhcpOption::Router(ret));
+	}
+
+	fn from_buffer(buffer: &[u8]) -> Result<Self, String> {
+		match buffer[0] {
+			1  => Self::subnetmask_from_buffer(buffer),
+			3  => Self::router_from_buffer(buffer),
+			53 => Ok(DhcpOption::MessageType(PacketType::from_buffer(buffer)?)),
+			x  => Err(format!("Unkown option type: {}", x)),
+		}
+	}
+
+	fn is_message_type(&self) -> bool {
+		match self {
+			&DhcpOption::MessageType(_) => true,
+			_ => false,
+		}
 	}
 }
 
@@ -145,7 +195,7 @@ impl DhcpFlags {
 		}
 	}
 
-	fn from_buffer(buffer: &mut[u8]) -> Result<Vec<Self>, String> {
+	fn from_buffer(buffer: &[u8]) -> Result<Vec<Self>, String> {
 		if (buffer[0] & 0x80) != 0 {
 			Ok(vec![DhcpFlags::Broadcast])
 		} else {
@@ -159,10 +209,10 @@ pub struct DhcpPacket<Hw> {
 	pub packet_type: PacketType,
 	pub xid: u32,
 	pub seconds: u16,
-	pub client_addr: Option<IpAddr>,
-	pub your_addr: Option<IpAddr>,
-	pub server_addr: Option<IpAddr>,
-	pub gateway_addr: Option<IpAddr>,
+	pub client_addr: Option<IPv4Addr>,
+	pub your_addr: Option<IPv4Addr>,
+	pub server_addr: Option<IPv4Addr>,
+	pub gateway_addr: Option<IPv4Addr>,
 	pub client_hwaddr: Hw,
 	pub options: Vec<DhcpOption>,
 	pub flags: Vec<DhcpFlags>,
@@ -175,7 +225,7 @@ flag.get_value());
 		buffer.write_u16::<NetworkEndian>(value).unwrap();
 	}
 
-	fn push_ip(ip: &Option<IpAddr>, buffer: &mut Vec<u8>) {
+	fn push_ip(ip: &Option<IPv4Addr>, buffer: &mut Vec<u8>) {
 		match ip {
 			&None => buffer.extend([0, 0, 0, 0,].iter()),
 			&Some(ref x) => x.push_to(buffer)
@@ -218,5 +268,71 @@ flag.get_value());
 
 		buffer.push(0xff);
 		return buffer;
+	}
+
+	fn get_ip(buffer: &[u8]) -> Option<IPv4Addr> {
+		let ip = IPv4Addr::from_buffer(buffer);
+		if ip == IPv4Addr([0, 0, 0, 0]) {
+			return None;
+		} else {
+			return Some(ip);
+		}
+	}
+
+	fn get_options(buffer: &[u8]) -> Result<Vec<DhcpOption>, String> {
+		let mut ret = Vec::new();
+		let mut i = 0;
+		loop {
+			if buffer[i] == 255 {
+				break;
+			}
+			if buffer[i] == 0 {
+				i += 1;
+				continue;
+			}
+
+			let opt = DhcpOption::from_buffer(&buffer[i..])?;
+			i += 2 + opt.get_size() as usize;
+			ret.push(opt);
+		}
+		return Ok(ret);
+	}
+
+	pub fn deserialize(buffer: &[u8]) -> Result<Self, String> {
+		let xid = NetworkEndian::read_u32(&buffer[4..]);
+		let seconds = NetworkEndian::read_u16(&buffer[8..]);
+		let flags = DhcpFlags::from_buffer(&buffer[10..])?;
+
+		let client_addr = Self::get_ip(&buffer[12..]);
+		let your_addr = Self::get_ip(&buffer[16..]);
+		let server_addr = Self::get_ip(&buffer[20..]);
+		let gateway_addr = Self::get_ip(&buffer[24..]);
+
+		let client_hwaddr = Hw::from_buffer(&buffer[28..]);
+		let cookie_pos = 236;
+		let options = Self::get_options(&buffer[cookie_pos + 4..])?;
+		let packet_type;
+
+		{
+			let msg_type = options.iter().find(|opt| opt.is_message_type());
+
+			packet_type = match msg_type {
+				Some(&DhcpOption::MessageType(ref t)) => Ok(*t),
+				_ => Err(String::from("Couldn't find message type dhcp option")),
+				}?;
+		}
+
+		return Ok(DhcpPacket{
+			packet_type: packet_type,
+			xid: xid,
+			seconds: seconds,
+			client_addr: client_addr,
+			your_addr: your_addr,
+			server_addr: server_addr,
+			gateway_addr: gateway_addr,
+			client_hwaddr: client_hwaddr,
+			flags: flags,
+			options: options.into_iter().filter(|opt| !opt.is_message_type()).collect(),
+			});
 	}
 }
