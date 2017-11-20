@@ -1,0 +1,8 @@
+[package]
+name = "dhcp"
+version = "0.1.0"
+authors = ["root"]
+
+[dependencies]
+byteorder = "1.1.0"
+pnet = "0.20.0"
