@@ -10,6 +10,9 @@ use std::vec::Vec;
 
 use serialize::Serializeable;
 
+use frame::ethernet::EthernetAddr;
+use frame::ip4::IPv4Addr;
+
 #[derive(Debug, Clone, Copy)]
 pub enum PacketType {
 	Discover,
@@ -85,9 +88,6 @@ pub trait HwAddr {
 	fn from_buffer(& [u8]) -> Self;
 }
 
-#[derive(Debug, Clone, Copy)] //deduplicate
-pub struct EthernetAddr (pub [u8;6]);
-
 impl HwAddr for EthernetAddr {
 	fn size() -> u8 { 6 }
 
@@ -104,8 +104,6 @@ impl HwAddr for EthernetAddr {
 	}
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct IPv4Addr (pub [u8;4]);
 
 impl IPv4Addr {
 	fn push_to(&self, buffer: &mut Vec<u8>) {
