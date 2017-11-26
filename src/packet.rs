@@ -27,15 +27,15 @@ pub enum PacketType {
 
 impl PacketType {
 	fn push_value(&self, buffer: &mut Vec<u8>) {
-		buffer.push(match self {
-			&PacketType::Discover => 0x1,
-			&PacketType::Offer => 0x2,
-			&PacketType::Request => 0x3,
-			&PacketType::Decline => 0x4,
-			&PacketType::Ack => 0x5,
-			&PacketType::Nack => 0x6,
-			&PacketType::Release => 0x7,
-			&PacketType::Inform => 0x8,
+		buffer.push(match *self {
+			PacketType::Discover => 0x1,
+			PacketType::Offer => 0x2,
+			PacketType::Request => 0x3,
+			PacketType::Decline => 0x4,
+			PacketType::Ack => 0x5,
+			PacketType::Nack => 0x6,
+			PacketType::Release => 0x7,
+			PacketType::Inform => 0x8,
 		});
 	}
 
@@ -68,15 +68,15 @@ impl PacketType {
 	}
 
 	fn get_op(&self) -> u8 {
-		match self {
-			&PacketType::Discover => 0x1,
-			&PacketType::Offer => 0x2,
-			&PacketType::Request => 0x1,
-			&PacketType::Decline => 0x1,
-			&PacketType::Ack => 0x2,
-			&PacketType::Nack => 0x2,
-			&PacketType::Release => 0x1,
-			&PacketType::Inform => 0x1,
+		match *self {
+			PacketType::Discover => 0x1,
+			PacketType::Offer => 0x2,
+			PacketType::Request => 0x1,
+			PacketType::Decline => 0x1,
+			PacketType::Ack => 0x2,
+			PacketType::Nack => 0x2,
+			PacketType::Release => 0x1,
+			PacketType::Inform => 0x1,
 		}
 	}
 }
@@ -130,69 +130,75 @@ pub enum DhcpOption {
 	ServerIdentifier(IPv4Addr),
 	RenewalTime(u32),
 	RebindingTime(u32),
+    ClientIdentifier(Box<[u8]>),
 	Unknown(u8, Box<[u8]>),
 }
 
 impl DhcpOption {
 	pub fn get_type(&self) -> u8 {
-		match self {
-			&DhcpOption::SubnetMask(_) => 1,
-			&DhcpOption::Router(_) => 3,
-			&DhcpOption::DomainNameServer(_) => 6,
-			&DhcpOption::Hostname(_) => 12,
-			&DhcpOption::BroadcastAddress(_) => 28,
-			&DhcpOption::AddressRequest(_) => 50,
-			&DhcpOption::LeaseTime(_) => 51,
-			&DhcpOption::MessageType(_) => 53,
-			&DhcpOption::ServerIdentifier(_) => 54,
-			&DhcpOption::RenewalTime(_) => 58,
-			&DhcpOption::RebindingTime(_) => 59,
-			&DhcpOption::Unknown(x, _) => x,
+		match *self {
+			DhcpOption::SubnetMask(_) => 1,
+			DhcpOption::Router(_) => 3,
+			DhcpOption::DomainNameServer(_) => 6,
+			DhcpOption::Hostname(_) => 12,
+			DhcpOption::BroadcastAddress(_) => 28,
+			DhcpOption::AddressRequest(_) => 50,
+			DhcpOption::LeaseTime(_) => 51,
+			DhcpOption::MessageType(_) => 53,
+			DhcpOption::ServerIdentifier(_) => 54,
+			DhcpOption::RenewalTime(_) => 58,
+			DhcpOption::RebindingTime(_) => 59,
+			DhcpOption::ClientIdentifier(_) => 60,
+			DhcpOption::Unknown(x, _) => x,
 		}
 	}
 
 	fn get_size(&self) -> u8 {
-		match self {
-			&DhcpOption::SubnetMask(_) => 4,
-			&DhcpOption::Router(ref vec) => 4 * vec.len() as u8,
-			&DhcpOption::DomainNameServer(ref vec) => 4 * vec.len() as u8,
-			&DhcpOption::Hostname(ref str) => str.as_bytes().len() as u8,
-			&DhcpOption::BroadcastAddress(_) => 4,
-			&DhcpOption::LeaseTime(_) => 4,
-			&DhcpOption::AddressRequest(_) => 4,
-			&DhcpOption::MessageType(_) => 1,
-			&DhcpOption::ServerIdentifier(_) => 4,
-			&DhcpOption::RenewalTime(_) => 4,
-			&DhcpOption::RebindingTime(_) => 4,
-			&DhcpOption::Unknown(_, ref b) => (*b).len() as u8,
+		match *self {
+			DhcpOption::SubnetMask(_) => 4,
+			DhcpOption::Router(ref vec) => 4 * vec.len() as u8,
+			DhcpOption::DomainNameServer(ref vec) => 4 * vec.len() as u8,
+			DhcpOption::Hostname(ref str) => str.as_bytes().len() as u8,
+			DhcpOption::BroadcastAddress(_) => 4,
+			DhcpOption::LeaseTime(_) => 4,
+			DhcpOption::AddressRequest(_) => 4,
+			DhcpOption::MessageType(_) => 1,
+			DhcpOption::ServerIdentifier(_) => 4,
+			DhcpOption::RenewalTime(_) => 4,
+			DhcpOption::RebindingTime(_) => 4,
+			DhcpOption::ClientIdentifier(ref val) => val.len() as u8,
+			DhcpOption::Unknown(_, ref b) => (*b).len() as u8,
 		}
 	}
 
 	fn push_value(&self, buffer: &mut Vec<u8>) {
-		match self {
-			&DhcpOption::SubnetMask(ref mask) => mask.push_to(buffer),
-			&DhcpOption::Router(ref vec) => {
+		match *self {
+			DhcpOption::SubnetMask(ref mask) => mask.push_to(buffer),
+			DhcpOption::Router(ref vec) => {
 				for ref router in vec.iter() {
 					router.push_to(buffer);
 				}
 			}
-			&DhcpOption::DomainNameServer(ref vec) => {
+			DhcpOption::DomainNameServer(ref vec) => {
 				for ref router in vec.iter() {
 					router.push_to(buffer);
 				}
 			}
-			&DhcpOption::Hostname(ref str) => buffer.extend(str.as_bytes().iter()),
-			&DhcpOption::BroadcastAddress(ref ip) => ip.push_to(buffer),
-			&DhcpOption::LeaseTime(l) =>
+			DhcpOption::Hostname(ref str) => buffer.extend(str.as_bytes().iter()),
+			DhcpOption::BroadcastAddress(ref ip) => ip.push_to(buffer),
+			DhcpOption::LeaseTime(l) =>
 				buffer.write_u32::<NetworkEndian>(l).unwrap(),
-			&DhcpOption::AddressRequest(ref ip) => ip.push_to(buffer),
-			&DhcpOption::MessageType(ref t) => t.push_value(buffer),
-			&DhcpOption::ServerIdentifier(ref ip) => ip.push_to(buffer),
-			&DhcpOption::RenewalTime(t) =>
+			DhcpOption::AddressRequest(ref ip) => ip.push_to(buffer),
+			DhcpOption::MessageType(ref t) => t.push_value(buffer),
+			DhcpOption::ServerIdentifier(ref ip) => ip.push_to(buffer),
+			DhcpOption::RenewalTime(t) =>
 				buffer.write_u32::<NetworkEndian>(t).unwrap(),
-			&DhcpOption::RebindingTime(t) =>
+			DhcpOption::RebindingTime(t) =>
 				buffer.write_u32::<NetworkEndian>(t).unwrap(),
-			&DhcpOption::Unknown(_, ref b) => buffer.extend((*b).iter()),
+			DhcpOption::ClientIdentifier(ref ci) =>
+                buffer.extend(ci.iter()),
+			DhcpOption::Unknown(_, ref data) =>
+                buffer.extend(data.iter()),
 		}
 	}
 
@@ -296,6 +302,13 @@ impl DhcpOption {
 		return Ok(DhcpOption::Unknown(t, data));
 	}
 
+    fn client_identifier_from_buffer(buffer: &[u8]) -> Result<Self, String> {
+		let len = buffer[1];
+		let tmp: Vec<u8> = buffer[2..len as usize + 2].iter().map(|x| *x).collect();
+		let data = tmp.into_boxed_slice();
+		return Ok(DhcpOption::ClientIdentifier(data));
+    }
+
 	fn from_buffer(buffer: &[u8]) -> Result<Self, String> {
 		match buffer[0] {
 			1  => Self::subnetmask_from_buffer(buffer),
@@ -309,6 +322,7 @@ impl DhcpOption {
 			54 => Self::server_identifier_from_buffer(buffer),
 			58 => Self::renewal_from_buffer(buffer),
 			59 => Self::rebinding_from_buffer(buffer),
+            60 => Self::client_identifier_from_buffer(buffer),
 			_  => Self::unknown_from_buffer(buffer),
 		}
 	}

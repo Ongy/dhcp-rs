@@ -40,7 +40,7 @@ impl Allocator {
 	}
 
 	// We *may* be out of allocatable addresses
-	pub fn allocation_for(&mut self, client: &lease::Client<EthernetAddr>) -> Option<&lease::Allocation<EthernetAddr, IPv4Addr>> {
+	fn allocation_for(&mut self, client: &lease::Client<EthernetAddr>) -> Option<&mut lease::Allocation<EthernetAddr, IPv4Addr>> {
 		let mut pos = self.find_allocation(client);
 
 		if pos.is_none() {
@@ -57,12 +57,34 @@ impl Allocator {
 			}
 		}
 
-		return pos.and_then(move |i| self.allocations.get(i));
+		return pos.and_then(move |i| self.allocations.get_mut(i));
 	}
 
-	pub fn get_requested(&mut self, client: &lease::Client<EthernetAddr>, addr: &IPv4Addr) -> Option<&lease::Allocation<EthernetAddr, IPv4Addr>> {
+	fn find_lease(&self, client: &lease::Client<EthernetAddr>) -> Option<usize> {
+		self.leases.iter().enumerate().find(|lease| &lease.1.client == client).map(|(i, _)| i)
+	}
+
+    pub fn get_lease_for(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<IPv4Addr>) -> Option<&lease::Lease<EthernetAddr, IPv4Addr>> {
+        let mut found = self.find_lease(client);
+
+        if found.is_none() {
+            let mut ml = None;
+            if let Some(alloc) = self.get_allocation_mut(client, addr) {
+                alloc.last_seen = lease::SerializeableTime(time::get_time());
+                ml = Some(lease::Lease::for_alloc(alloc, 7200));
+            }
+            if let Some(l) = ml {
+                self.leases.push(l);
+                found = Some(self.leases.len() - 1);
+            }
+        }
+
+		return found.and_then(move |i| self.leases.get(i));
+    }
+
+	fn get_requested(&mut self, client: &lease::Client<EthernetAddr>, addr: &IPv4Addr) -> Option<&mut lease::Allocation<EthernetAddr, IPv4Addr>> {
 		let ip = ((addr.0[0] as u32) << 24) + ((addr.0[1] as u32) << 16) + ((addr.0[2] as u32) << 8) + (addr.0[3] as u32);
-		let found = self.allocations.iter().enumerate().find(|alloc| &alloc.1.assigned == addr).map(|(i, _)| i);
+		let mut found = self.allocations.iter().enumerate().find(|alloc| &alloc.1.assigned == addr).map(|(i, _)| i);
 
 		if found.is_none() {
 			if self.address_pool.is_suitable(ip) {
@@ -73,17 +95,22 @@ impl Allocator {
 					last_seen: lease::SerializeableTime(time::get_time())
 					};
 				self.allocations.push(alloc);
-				return self.allocations.last();
+                found = Some(self.allocations.len() - 1);
 			}
 		}
-		return found.and_then(move |i| self.allocations.get(i));
+		return found.and_then(move |i| self.allocations.get_mut(i));
 	}
 
-	pub fn get_allocation(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<IPv4Addr>) -> Option<&lease::Allocation<EthernetAddr, IPv4Addr>> {
+	fn get_allocation_mut(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<IPv4Addr>) -> Option<&mut lease::Allocation<EthernetAddr, IPv4Addr>> {
 		match addr {
 			None => self.allocation_for(client),
 			Some(x) => self.get_requested(client, &x),
 		}
+	}
+
+	pub fn get_allocation(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<IPv4Addr>) -> Option<&lease::Allocation<EthernetAddr, IPv4Addr>> {
+        let ret = self.get_allocation_mut(client, addr);
+        return ret.map(|x| &*x);
 	}
 
 
