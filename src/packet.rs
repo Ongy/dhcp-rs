@@ -125,6 +125,7 @@ pub enum DhcpOption {
 	Hostname(String),
 	BroadcastAddress(IPv4Addr),
 	LeaseTime(u32),
+	AddressRequest(IPv4Addr),
 	MessageType(PacketType),
 	ServerIdentifier(IPv4Addr),
 	RenewalTime(u32),
@@ -133,13 +134,14 @@ pub enum DhcpOption {
 }
 
 impl DhcpOption {
-	fn get_type(&self) -> u8 {
+	pub fn get_type(&self) -> u8 {
 		match self {
 			&DhcpOption::SubnetMask(_) => 1,
 			&DhcpOption::Router(_) => 3,
 			&DhcpOption::DomainNameServer(_) => 6,
 			&DhcpOption::Hostname(_) => 12,
 			&DhcpOption::BroadcastAddress(_) => 28,
+			&DhcpOption::AddressRequest(_) => 50,
 			&DhcpOption::LeaseTime(_) => 51,
 			&DhcpOption::MessageType(_) => 53,
 			&DhcpOption::ServerIdentifier(_) => 54,
@@ -157,6 +159,7 @@ impl DhcpOption {
 			&DhcpOption::Hostname(ref str) => str.as_bytes().len() as u8,
 			&DhcpOption::BroadcastAddress(_) => 4,
 			&DhcpOption::LeaseTime(_) => 4,
+			&DhcpOption::AddressRequest(_) => 4,
 			&DhcpOption::MessageType(_) => 1,
 			&DhcpOption::ServerIdentifier(_) => 4,
 			&DhcpOption::RenewalTime(_) => 4,
@@ -182,6 +185,7 @@ impl DhcpOption {
 			&DhcpOption::BroadcastAddress(ref ip) => ip.push_to(buffer),
 			&DhcpOption::LeaseTime(l) =>
 				buffer.write_u32::<NetworkEndian>(l).unwrap(),
+			&DhcpOption::AddressRequest(ref ip) => ip.push_to(buffer),
 			&DhcpOption::MessageType(ref t) => t.push_value(buffer),
 			&DhcpOption::ServerIdentifier(ref ip) => ip.push_to(buffer),
 			&DhcpOption::RenewalTime(t) =>
@@ -244,6 +248,14 @@ impl DhcpOption {
 		return Ok(DhcpOption::BroadcastAddress(addr));
 	}
 
+	fn address_request_from_buffer(buffer: &[u8]) -> Result<Self, String> {
+		if buffer[1] != 4 {
+			return Err("Subnetmask DHCP option size wasn't 4".into());
+		}
+		let addr = IPv4Addr::from_buffer(&buffer[2..]);
+		return Ok(DhcpOption::AddressRequest(addr));
+	}
+
 	fn server_identifier_from_buffer(buffer: &[u8]) -> Result<Self, String> {
 		if buffer[1] != 4 {
 			return Err("Subnetmask DHCP option size wasn't 4".into());
@@ -291,6 +303,7 @@ impl DhcpOption {
 			6  => Self::dns_from_buffer(buffer),
 			12 => Self::hostname_from_buffer(buffer),
 			28 => Self::broadcast_from_buffer(buffer),
+			50 => Self::address_request_from_buffer(buffer),
 			51 => Self::leasetime_from_buffer(buffer),
 			53 => Ok(DhcpOption::MessageType(PacketType::from_buffer(buffer)?)),
 			54 => Self::server_identifier_from_buffer(buffer),

@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate serde_derive;
+
 extern crate pnet;
 extern crate time;
 
@@ -6,6 +9,7 @@ mod lease;
 mod packet;
 mod pool;
 mod serialize;
+mod allocator;
 
 use pnet::datalink::{self, NetworkInterface};
 use pnet::datalink::Channel;
@@ -22,33 +26,19 @@ fn decode_dhcp(rec: &[u8]) -> Result<packet::DhcpPacket<EthernetAddr>, String> {
 	return Ok(tmp.payload.payload.payload);
 }
 
-fn get_lease<H: Eq, I>(
-		offers: &mut Vec<lease::Lease<H, I>>,
-		client: &H)
-		-> Option<lease::Lease<H, I>> {
-	let mut found = None;
-	for i in 0..offers.len() {
-		if let Some(l) = offers.get(i) {
-			if &l.hw_addr == client {
-				found = Some(i);
-				break;
-			}
-		}
-	}
-
-	if let Some(x) = found {
-		return Some(offers.swap_remove(x));
-	}
-
-	return None;
-}
-
 fn handle_request(mac: &pnet::datalink::MacAddr,
 		tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
-		offers: &mut Vec<lease::Lease<EthernetAddr, IPv4Addr>>,
+		allocator: &mut allocator::Allocator,
 		request: packet::DhcpPacket<EthernetAddr>
 		) {
-	if let Some(l) = get_lease(offers, &request.client_hwaddr) {
+	let client = lease::Client{hw_addr: request.client_hwaddr.clone(), client_identifier: None, hostname: None};
+	let req_addr = request.options.iter().flat_map(|opt|
+		match opt {
+			&packet::DhcpOption::AddressRequest(ip) => Some(ip.clone()),
+			_ => None
+		}).next();
+
+	if let Some(l) = allocator.get_allocation(&client, req_addr) {
 		let addr = l.assigned.clone();
 		let offer = packet::DhcpPacket {
 			packet_type: packet::PacketType::Ack,
@@ -61,7 +51,7 @@ fn handle_request(mac: &pnet::datalink::MacAddr,
 			client_hwaddr: request.client_hwaddr.clone(),
 			options: vec![
 				packet::DhcpOption::SubnetMask(IPv4Addr([255, 255, 255, 0])),
-				packet::DhcpOption::LeaseTime(l.lease_duration)
+				packet::DhcpOption::LeaseTime(7200)
 ],
 			flags: Vec::new(),
 			};
@@ -79,12 +69,12 @@ mac.3, mac.4, mac.5]), dst: request.client_hwaddr.clone(), eth_type: 0x0800, pay
 
 fn send_offer(mac: &pnet::datalink::MacAddr,
 		tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
-		pool: &mut pool::IPPool,
-		offers: &mut Vec<lease::Lease<EthernetAddr, IPv4Addr>>,
+		allocator: &mut allocator::Allocator,
 		discover: packet::DhcpPacket<EthernetAddr>
 		) {
-	if let Some(ip) = pool.next() {
-		let addr = IPv4Addr([(ip >> 24) as u8, (ip >> 16) as u8, (ip >> 8) as u8, ip as u8]);
+	let client = lease::Client{hw_addr: discover.client_hwaddr.clone(), client_identifier: None, hostname: None};
+	if let Some(alloc) = allocator.allocation_for(&client) {
+		let addr = alloc.assigned;
 		let offer = packet::DhcpPacket {
 			packet_type: packet::PacketType::Offer,
 			xid: discover.xid,
@@ -105,30 +95,17 @@ fn send_offer(mac: &pnet::datalink::MacAddr,
 		let tmp = serialize::serialize(&ethernet);
 	
 		tx.send_to(tmp.deref(), None);
-
-		let t = time::get_time();
-
-		let l = lease::Lease {
-			hw_addr: discover.client_hwaddr.clone(),
-			assigned: addr,
-			client_identifier: None,
-			lease_start: t,
-			lease_duration: 7200
-			};
-		offers.push(l);
 	}
 }
 
 fn handle_packet(mac: &pnet::datalink::MacAddr,
 		tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
-		pool: &mut pool::IPPool,
-		offers: &mut Vec<lease::Lease<EthernetAddr, IPv4Addr>>,
+		allocs: &mut allocator::Allocator,
 		packet: packet::DhcpPacket<EthernetAddr>) {
+	println!("Handling: {:?}", &packet);
 	match &packet.packet_type {
-		&packet::PacketType::Discover => send_offer(mac, tx, pool,
-offers, packet),
-		&packet::PacketType::Request => handle_request(mac, tx,
-offers, packet),
+		&packet::PacketType::Discover => send_offer(mac, tx, allocs, packet),
+		&packet::PacketType::Request => handle_request(mac, tx, allocs, packet),
 		_ => {},
 	}
 }
@@ -137,8 +114,8 @@ fn main() {
 	let interfaces = datalink::interfaces();
 	let interface = interfaces.into_iter().filter(|iface: &NetworkInterface | iface.name == "server").next().unwrap();
 	let mac = interface.mac.unwrap();
-	let mut pool = pool::IPPool::new((192 << 24) + (168 << 16) + 2, (192 << 24) + (168 << 16) + 15);
-	let mut offers = Vec::new();
+	let pool = pool::IPPool::new((192 << 24) + (168 << 16) + 2, (192 << 24) + (168 << 16) + 15);
+	let mut allocator = allocator::Allocator::new(pool);
 
 	let (mut tx, mut rx) = match datalink::channel(&interface, Default::default()) {
 		Ok(Channel::Ethernet(tx, rx)) => (tx, rx),
@@ -149,10 +126,13 @@ fn main() {
 	loop {
 		let rec = rx.next().unwrap();
 		let packet = decode_dhcp(&rec);
+		println!("{:?}", &packet);
 		match packet {
 			Err(x) => println!("{:?}", x),
-			Ok(x) => handle_packet(&mac, &mut tx, &mut pool, &mut
-offers, x),
+			Ok(x) => handle_packet(&mac, &mut tx, &mut allocator, x),
 		}
+
+		println!("{}", allocator.seralize_leases());
+		println!("{}", allocator.seralize_allocs());
 	}
 }

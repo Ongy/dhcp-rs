@@ -8,7 +8,7 @@ use self::pnet::util::checksum;
 use std::vec::Vec;
 use serialize::Serializeable;
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub struct IPv4Addr (pub [u8;4]);
 
 #[derive(Debug)]

@@ -7,3 +7,6 @@ authors = ["root"]
 byteorder = "1.1.0"
 pnet = "0.20.0"
 time = "*"
+serde = "1.0.*"
+serde_derive = "*"
+serde_json = "*"

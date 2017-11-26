@@ -77,4 +77,8 @@ range_index: 0, used: HashSet::new()};
 	pub fn set_unused(&mut self, ip: u32) {
 		self.used.remove(&ip);
 	}
+
+	pub fn is_suitable(&self, ip: u32) -> bool {
+		return self.ranges.iter().any(|range| range.lower <= ip && range.upper >= ip);
+	}
 }

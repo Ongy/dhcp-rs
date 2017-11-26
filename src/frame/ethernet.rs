@@ -4,7 +4,7 @@ use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 use std::vec::Vec;
 use serialize::Serializeable;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)] //deduplicate
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)] //deduplicate
 pub struct EthernetAddr (pub [u8;6]);
 
 #[derive(Debug)]
