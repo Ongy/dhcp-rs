@@ -1,5 +1,10 @@
 extern crate byteorder;
 
+#[cfg(test)]
+use quickcheck::Arbitrary;
+#[cfg(test)]
+use quickcheck::Gen;
+
 use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 use std::vec::Vec;
 use serialize::Serializeable;
@@ -35,4 +40,12 @@ impl<P: Serializeable> Serializeable for Ethernet<P> {
 
 		return Ok(Ethernet{src: EthernetAddr(src), dst: EthernetAddr(dst), eth_type: eth_type, payload: payload})
 	}
+}
+
+#[cfg(test)]
+impl Arbitrary for EthernetAddr {
+    fn arbitrary<G: Gen>(gen: &mut G) -> Self {
+        let vals: (u8, u8, u8, u8, u8, u8) = Arbitrary::arbitrary(gen);
+        EthernetAddr([vals.0, vals.1, vals.2, vals.3, vals.4, vals.5])
+    }
 }

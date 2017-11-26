@@ -62,14 +62,6 @@ impl<H, I> Lease<H, I>
 impl<H, I> Lease<H, I>
 	where H: Clone,
 	      I: Clone {
-	pub fn get_alloc(&self) -> Allocation<H, I> {
-		return Allocation {
-			assigned: self.assigned.clone(),
-			client: self.client.clone(),
-			last_seen: self.lease_start.clone(),
-			};
-	}
-
 	pub fn for_alloc(alloc: &Allocation<H, I>, duration: u32) -> Lease<H, I> {
 		return Lease {
 			assigned: alloc.assigned.clone(),
@@ -79,4 +71,3 @@ impl<H, I> Lease<H, I>
 			};
 	}
 }
-

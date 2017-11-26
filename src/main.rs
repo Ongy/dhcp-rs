@@ -1,3 +1,6 @@
+#[cfg(test)]
+#[macro_use]
+extern crate quickcheck;
 #[macro_use]
 extern crate serde_derive;
 
@@ -47,6 +50,7 @@ fn get_client(pack: &packet::DhcpPacket<EthernetAddr>) -> lease::Client<Ethernet
 fn handle_request(mac: &pnet::datalink::MacAddr,
         tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
         allocator: &mut allocator::Allocator,
+        options: &Box<[packet::DhcpOption]>,
         request: packet::DhcpPacket<EthernetAddr>
         ) {
     let client = get_client(&request);
@@ -56,7 +60,14 @@ fn handle_request(mac: &pnet::datalink::MacAddr,
             _ => None
         }).next();
 
+
     if let Some(l) = allocator.get_lease_for(&client, req_addr) {
+        let mut opts = vec![
+            packet::DhcpOption::SubnetMask(IPv4Addr([255, 255, 255, 0])),
+            packet::DhcpOption::LeaseTime(l.lease_duration),
+            packet::DhcpOption::ServerIdentifier(IPv4Addr([192, 168, 0, 1]))
+            ];
+        opts.extend(options.deref().iter().map(|x| (*x).clone()));
         let addr = l.assigned.clone();
         let offer = packet::DhcpPacket {
             packet_type: packet::PacketType::Ack,
@@ -67,21 +78,16 @@ fn handle_request(mac: &pnet::datalink::MacAddr,
             server_addr: None,
             gateway_addr: None,
             client_hwaddr: request.client_hwaddr.clone(),
-            options: vec![
-                packet::DhcpOption::SubnetMask(IPv4Addr([255, 255, 255, 0])),
-                packet::DhcpOption::LeaseTime(l.lease_duration),
-                packet::DhcpOption::ServerIdentifier(IPv4Addr([192, 168, 0, 1]))
-                ],
+            options: opts,
             flags: Vec::new(),
             };
 
         let udp = UDP { src: 67, dst: 68, payload: offer};
         let ip = IPv4Packet { src: IPv4Addr([192, 168, 0, 1]), dst:IPv4Addr([255, 255, 255, 255]), ttl: 64, protocol: 17, payload: udp};
-        let ethernet = Ethernet{src: EthernetAddr([mac.0, mac.1, mac.2,
-mac.3, mac.4, mac.5]), dst: request.client_hwaddr.clone(), eth_type: 0x0800, payload: ip};
+        let ethernet = Ethernet{src: EthernetAddr([mac.0, mac.1, mac.2, mac.3, mac.4, mac.5]), dst: request.client_hwaddr.clone(), eth_type: 0x0800, payload: ip};
 
         let tmp = serialize::serialize(&ethernet);
-    
+
         tx.send_to(tmp.deref(), None);
     }
 }
@@ -129,11 +135,12 @@ fn send_offer(mac: &pnet::datalink::MacAddr,
 fn handle_packet(mac: &pnet::datalink::MacAddr,
         tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
         allocs: &mut allocator::Allocator,
+        options: &Box<[packet::DhcpOption]>,
         packet: packet::DhcpPacket<EthernetAddr>) {
     println!("Handling: {:?}", &packet);
     match &packet.packet_type {
         &packet::PacketType::Discover => send_offer(mac, tx, allocs, packet),
-        &packet::PacketType::Request => handle_request(mac, tx, allocs, packet),
+        &packet::PacketType::Request => handle_request(mac, tx, allocs, options, packet),
         _ => {},
     }
 }
@@ -143,6 +150,12 @@ fn main() {
     let interface = interfaces.into_iter().filter(|iface: &NetworkInterface | iface.name == "server").next().unwrap();
     let mac = interface.mac.unwrap();
     let pool = pool::IPPool::new((192 << 24) + (168 << 16) + 2, (192 << 24) + (168 << 16) + 15);
+    let options = vec![
+        packet::DhcpOption::DomainNameServer(vec![
+             IPv4Addr([10, 0, 0, 1]),
+             IPv4Addr([10, 149, 107, 130])
+            ].into_boxed_slice())
+        ].into_boxed_slice();
     let mut allocator = allocator::Allocator::new(pool);
 
     let (mut tx, mut rx) = match datalink::channel(&interface, Default::default()) {
@@ -157,7 +170,7 @@ fn main() {
         println!("{:?}", &packet);
         match packet {
             Err(x) => println!("{:?}", x),
-            Ok(x) => handle_packet(&mac, &mut tx, &mut allocator, x),
+            Ok(x) => handle_packet(&mac, &mut tx, &mut allocator, &options, x),
         }
 
         println!("{}", allocator.seralize_leases());

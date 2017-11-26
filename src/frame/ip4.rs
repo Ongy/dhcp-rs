@@ -1,6 +1,10 @@
 extern crate byteorder;
-
 extern crate pnet;
+
+#[cfg(test)]
+use quickcheck::Arbitrary;
+#[cfg(test)]
+use quickcheck::Gen;
 
 use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 use self::pnet::util::checksum;
@@ -92,4 +96,12 @@ impl<P: Serializeable> Serializeable for IPv4Packet<P> {
 
 		return Ok(Self{src: IPv4Addr(src), dst: IPv4Addr(dst), ttl: ttl, protocol: protocol, payload: payload});
 	}
+}
+
+#[cfg(test)]
+impl Arbitrary for IPv4Addr {
+    fn arbitrary<G: Gen>(gen: &mut G) -> Self {
+        let vals: (u8, u8, u8, u8) = Arbitrary::arbitrary(gen);
+        IPv4Addr([vals.0, vals.1, vals.2, vals.3])
+    }
 }
