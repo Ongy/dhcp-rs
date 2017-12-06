@@ -250,7 +250,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "rs-config"
 version = "0.1.0"
-source = "git+https://github.com/Ongy/config-rs#be708f5d311500248fc4c12a4b3f5296a2c328cf"
+source = "git+https://github.com/Ongy/config-rs#4527e8a5a2d952fe2713096ab9b3e64c636f0e51"
 dependencies = [
  "rs-config-derive 0.1.0 (git+https://github.com/Ongy/config-rs)",
 ]
@@ -258,7 +258,7 @@ dependencies = [
 [[package]]
 name = "rs-config-derive"
 version = "0.1.0"
-source = "git+https://github.com/Ongy/config-rs#be708f5d311500248fc4c12a4b3f5296a2c328cf"
+source = "git+https://github.com/Ongy/config-rs#4527e8a5a2d952fe2713096ab9b3e64c636f0e51"
 dependencies = [
  "quote 0.3.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn 0.11.11 (registry+https://github.com/rust-lang/crates.io-index)",

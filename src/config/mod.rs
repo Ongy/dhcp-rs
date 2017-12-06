@@ -2,6 +2,7 @@ extern crate rs_config;
 
 use rs_config::ConfigAble;
 use std::net::Ipv4Addr;
+use ::frame::ethernet::EthernetAddr;
 
 use ::pool;
 
@@ -34,7 +35,7 @@ impl IPPool {
 #[derive(Debug, ConfigAble)]
 pub enum Selector {
     All,
-    Macs(Box<[u8]>),
+    Macs(Box<[EthernetAddr]>),
     Hostnames(Box<[String]>),
     Either(Box<[Selector]>)
 }
@@ -43,7 +44,7 @@ impl Selector {
     pub fn is_suitable(&self, client: &::lease::Client<::frame::ethernet::EthernetAddr>) -> bool {
         match *self {
             Selector::All => true,
-            Selector::Macs(ref b) => false,//b.iter().any(|x| x == client.hw_addr),
+            Selector::Macs(ref b) => b.iter().any(|x| x == &client.hw_addr),
             Selector::Hostnames(ref b) => match client.hostname {
                 // Why is this so hard to do with .map()? :(
                     None => false,
