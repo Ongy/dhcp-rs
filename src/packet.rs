@@ -182,18 +182,18 @@ impl ClasslessRoute {
 #[cfg(test)]
 impl Arbitrary for ClasslessRoute {
     fn arbitrary<G: Gen>(gen: &mut G) -> Self {
-        let mut net: Ipv4Addr = Arbitrary::arbitrary(gen);
+        let mut net: [u8;4] = [Arbitrary::arbitrary(gen), Arbitrary::arbitrary(gen), Arbitrary::arbitrary(gen), Arbitrary::arbitrary(gen)];
         let prefix = u8::arbitrary(gen) % 32;
         let router = Arbitrary::arbitrary(gen);
 
         let octets = Self::get_octets(prefix);
 
         for i in octets..4 {
-            (net.0)[i as usize] = 0;
+            net[i as usize] = 0;
         }
 
         ClasslessRoute {
-            net: net,
+            net: Ipv4Addr::from(net),
             prefix: prefix,
             router: router
             }
