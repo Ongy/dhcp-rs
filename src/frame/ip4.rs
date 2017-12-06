@@ -1,8 +1,5 @@
-extern crate rs_config;
 extern crate byteorder;
 extern crate pnet;
-
-use rs_config::ConfigAble;
 
 #[cfg(test)]
 use quickcheck::Arbitrary;
@@ -16,28 +13,12 @@ use std::vec::Vec;
 use serialize::Serializeable;
 
 use std::convert::Into;
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Hash, ConfigAble)]
-pub struct IPv4Addr (pub [u8;4]);
-
-impl Into<u32> for IPv4Addr {
-    fn into(self) -> u32 {
-        NetworkEndian::read_u32(&self.0)
-    }
-}
-
-impl From<u32> for IPv4Addr {
-    fn from(arg: u32) -> Self {
-        let mut buffer = [0;4];
-        NetworkEndian::write_u32(&mut buffer, arg);
-        IPv4Addr(buffer)
-    }
-}
+use std::net::Ipv4Addr;
 
 #[derive(Debug)]
 pub struct IPv4Packet<P> {
-	pub src: IPv4Addr,
-	pub dst: IPv4Addr,
+	pub src: Ipv4Addr,
+	pub dst: Ipv4Addr,
 	pub ttl: u8,
 	pub protocol: u8,
 
@@ -65,8 +46,8 @@ impl<P: Serializeable> Serializeable for IPv4Packet<P> {
 		/* First set checksum to 0 */
 		buffer.write_u16::<NetworkEndian>(0).unwrap();
 
-		buffer.extend(self.src.0.iter());
-		buffer.extend(self.dst.0.iter());
+		buffer.extend(self.src.octets().iter());
+		buffer.extend(self.dst.octets().iter());
 
 		let pre = buffer.len();
 		self.payload.serialize_onto(buffer);
@@ -107,20 +88,12 @@ impl<P: Serializeable> Serializeable for IPv4Packet<P> {
 		let ttl = buffer[8];
 		let protocol = buffer[9];
 
-		let src = [buffer[12], buffer[13], buffer[14], buffer[15]];
-		let dst = [buffer[16], buffer[17], buffer[18], buffer[19]];
+		let src = Ipv4Addr::new(buffer[12], buffer[13], buffer[14], buffer[15]);
+		let dst = Ipv4Addr::new(buffer[16], buffer[17], buffer[18], buffer[19]);
 
 		let payload = P::deserialize_from(&buffer[20..ip_len as usize])?;
 
 
-		return Ok(Self{src: IPv4Addr(src), dst: IPv4Addr(dst), ttl: ttl, protocol: protocol, payload: payload});
+		return Ok(Self{src: src, dst: dst, ttl: ttl, protocol: protocol, payload: payload});
 	}
-}
-
-#[cfg(test)]
-impl Arbitrary for IPv4Addr {
-    fn arbitrary<G: Gen>(gen: &mut G) -> Self {
-        let vals: (u8, u8, u8, u8) = Arbitrary::arbitrary(gen);
-        IPv4Addr([vals.0, vals.1, vals.2, vals.3])
-    }
 }

@@ -3,6 +3,7 @@ name = "dhcp"
 version = "0.1.0"
 dependencies = [
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ipnetwork 0.12.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "pnet 0.20.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "quickcheck 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rs-config 0.1.0 (git+https://github.com/Ongy/config-rs)",

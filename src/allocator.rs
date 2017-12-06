@@ -8,13 +8,13 @@ use lease;
 use pool;
 
 use frame::ethernet::EthernetAddr;
-use frame::ip4::IPv4Addr;
+use std::net::Ipv4Addr;
 
 
 // For now this is a pure ipv4 <-> ethernet allocator
 pub struct Allocator {
-    allocations: Vec<lease::Allocation<EthernetAddr, IPv4Addr>>,
-    leases: Vec<lease::Lease<EthernetAddr, IPv4Addr>>,
+    allocations: Vec<lease::Allocation<EthernetAddr, Ipv4Addr>>,
+    leases: Vec<lease::Lease<EthernetAddr, Ipv4Addr>>,
     address_pool: pool::IPPool,
 }
 
@@ -22,7 +22,7 @@ impl Allocator {
     /* Get the allocations we could reuse because there's no current lease
      * for them (which would lock them
      */
-    fn get_viable_allocs(&self) -> Vec<&lease::Allocation<EthernetAddr, IPv4Addr>> {
+    fn get_viable_allocs(&self) -> Vec<&lease::Allocation<EthernetAddr, Ipv4Addr>> {
         return self.allocations.iter().filter(|alloc|
             self.leases.iter().all(|lease|
                 !lease.is_for_alloc(alloc))).collect();
@@ -38,7 +38,7 @@ impl Allocator {
     }
 
     // We *may* be out of allocatable addresses
-    fn allocation_for(&mut self, client: &lease::Client<EthernetAddr>) -> Option<&mut lease::Allocation<EthernetAddr, IPv4Addr>> {
+    fn allocation_for(&mut self, client: &lease::Client<EthernetAddr>) -> Option<&mut lease::Allocation<EthernetAddr, Ipv4Addr>> {
         self.find_allocation(client).or_else(||{
             self.next_ip().map(|ip| {
                 let alloc = lease::Allocation{
@@ -56,7 +56,7 @@ impl Allocator {
         self.leases.iter().enumerate().find(|lease| &lease.1.client == client).map(|(i, _)| i)
     }
 
-    pub fn get_lease_for(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<IPv4Addr>) -> Option<&lease::Lease<EthernetAddr, IPv4Addr>> {
+    pub fn get_lease_for(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
         //let mut found = self.find_lease(client);
         self.find_lease(client).or_else(||{
             self.get_allocation_mut(client, addr).map(|alloc|{
@@ -69,8 +69,8 @@ impl Allocator {
         }).and_then(move |i| self.leases.get(i))
     }
 
-    fn get_requested(&mut self, client: &lease::Client<EthernetAddr>, addr: &IPv4Addr) -> Option<&mut lease::Allocation<EthernetAddr, IPv4Addr>> {
-        let ip = ((addr.0[0] as u32) << 24) + ((addr.0[1] as u32) << 16) + ((addr.0[2] as u32) << 8) + (addr.0[3] as u32);
+    fn get_requested(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> Option<&mut lease::Allocation<EthernetAddr, Ipv4Addr>> {
+        let ip = u32::from(*addr);
         let mut found = self.allocations.iter().enumerate().find(|alloc| &alloc.1.assigned == addr).map(|(i, _)| i);
 
         if found.is_none() {
@@ -88,14 +88,14 @@ impl Allocator {
         return found.and_then(move |i| self.allocations.get_mut(i));
     }
 
-    fn get_allocation_mut(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<IPv4Addr>) -> Option<&mut lease::Allocation<EthernetAddr, IPv4Addr>> {
+    fn get_allocation_mut(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&mut lease::Allocation<EthernetAddr, Ipv4Addr>> {
         match addr {
             None => self.allocation_for(client),
             Some(x) => self.get_requested(client, &x),
         }
     }
 
-    pub fn get_allocation(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<IPv4Addr>) -> Option<&lease::Allocation<EthernetAddr, IPv4Addr>> {
+    pub fn get_allocation(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Allocation<EthernetAddr, Ipv4Addr>> {
         // Simply cast the mut away
         self.get_allocation_mut(client, addr).map(|x| &*x)
     }
@@ -109,7 +109,7 @@ impl Allocator {
         serde_json::to_string(&self.allocations).unwrap()
     }
 
-    fn next_ip(&mut self) -> Option<IPv4Addr> {
+    fn next_ip(&mut self) -> Option<Ipv4Addr> {
         let pooled = self.address_pool.next();
         return pooled.or_else( || {
             let mut viable = self.get_viable_allocs();

@@ -5,7 +5,7 @@ use std::iter::Iterator;
 
 use std::ops::Deref;
 
-use frame::ip4::IPv4Addr;
+use std::net::Ipv4Addr;
 
 #[derive(Debug, Clone, Copy)]
 struct IPRange {
@@ -23,7 +23,7 @@ pub struct IPPool {
 }
 
 impl Iterator for IPPool {
-	type Item=IPv4Addr;
+	type Item=Ipv4Addr;
 
 	fn next(&mut self) -> Option<Self::Item> {
 		let mut current = self.next;
@@ -50,7 +50,7 @@ impl Iterator for IPPool {
 			if current <= self.current.upper {
 				self.next = current + 1;
 				self.used.insert(current);
-				return Some(IPv4Addr::from(current));
+				return Some(Ipv4Addr::from(current));
 			}
 
 		}
@@ -59,7 +59,7 @@ impl Iterator for IPPool {
 
 impl IPPool {
     pub fn new_multi<I>(ranges: I) -> Self
-        where I: Iterator<Item=(IPv4Addr, IPv4Addr)> {
+        where I: Iterator<Item=(Ipv4Addr, Ipv4Addr)> {
 		let iter = ranges.map(|(lower, upper)| IPRange{lower: lower.into(), upper: upper.into()});
         let vec: Vec<IPRange> = iter.collect();
 		let b = vec.into_boxed_slice();
@@ -67,7 +67,7 @@ impl IPPool {
 		return IPPool { ranges: b, next: range.lower.into(), current: range, range_index: 0, used: HashSet::new()};
     }
 
-	pub fn new(lower: IPv4Addr, upper: IPv4Addr) -> Self {
+	pub fn new(lower: Ipv4Addr, upper: Ipv4Addr) -> Self {
         return Self::new_multi(iter::once((lower, upper)));
 
 		//let range = IPRange{lower: lower.into(), upper: upper.into()};

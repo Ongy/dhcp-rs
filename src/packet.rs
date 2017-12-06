@@ -19,7 +19,7 @@ use quickcheck::Arbitrary;
 use quickcheck::Gen;
 
 use frame::ethernet::EthernetAddr;
-use frame::ip4::IPv4Addr;
+use std::net::Ipv4Addr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ConfigAble)]
 pub enum PacketType {
@@ -123,24 +123,26 @@ impl HwAddr for EthernetAddr {
     }
 }
 
-
-impl IPv4Addr {
+//TODO: Pretty this up
+impl HwAddr for Ipv4Addr {
+    fn size() -> u8 {4}
+    fn hwtype() -> u8{0}
     fn push_to(&self, buffer: &mut Vec<u8>) {
-        buffer.extend(self.0.iter());
+        buffer.extend(self.octets().iter());
     }
 
     fn from_buffer(buffer: &[u8]) -> Self {
         let mut array = [0; 4];
         array.copy_from_slice(&buffer[..4]);
-        return IPv4Addr(array);
+        return Ipv4Addr::from(array);
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, ConfigAble)]
 pub struct ClasslessRoute {
-    pub net: IPv4Addr,
+    pub net: Ipv4Addr,
     pub prefix: u8,
-    pub router: IPv4Addr
+    pub router: Ipv4Addr
 }
 
 impl ClasslessRoute {
@@ -152,7 +154,7 @@ impl ClasslessRoute {
     fn push_to(&self, buffer: &mut Vec<u8>) {
         let octets = Self::get_octets(self.prefix);
         buffer.push(self.prefix);
-        buffer.extend(self.net.0.iter().take(octets as usize));
+        buffer.extend(self.net.octets().iter().take(octets as usize));
         self.router.push_to(buffer);
     }
 
@@ -161,8 +163,8 @@ impl ClasslessRoute {
         let octets = Self::get_octets(len);
         let mut array = [0; 4];
         array[0..octets as usize].copy_from_slice(&buffer[1..1 + octets as usize]);
-        let net = IPv4Addr(array);
-        let router = IPv4Addr::from_buffer(&buffer[1 + octets as usize ..]);
+        let net = Ipv4Addr::from(array);
+        let router = Ipv4Addr::from_buffer(&buffer[1 + octets as usize ..]);
 
         return Ok(ClasslessRoute {net: net, prefix: len, router: router});
     }
@@ -180,7 +182,7 @@ impl ClasslessRoute {
 #[cfg(test)]
 impl Arbitrary for ClasslessRoute {
     fn arbitrary<G: Gen>(gen: &mut G) -> Self {
-        let mut net: IPv4Addr = Arbitrary::arbitrary(gen);
+        let mut net: Ipv4Addr = Arbitrary::arbitrary(gen);
         let prefix = u8::arbitrary(gen) % 32;
         let router = Arbitrary::arbitrary(gen);
 
@@ -200,15 +202,15 @@ impl Arbitrary for ClasslessRoute {
 
 #[derive(Debug, Clone, PartialEq, Eq, ConfigAble)]
 pub enum DhcpOption {
-    SubnetMask(IPv4Addr), //This should probably be a better type
-    Router(Box<[IPv4Addr]>),
-    DomainNameServer(Box<[IPv4Addr]>),
+    SubnetMask(Ipv4Addr), //This should probably be a better type
+    Router(Box<[Ipv4Addr]>),
+    DomainNameServer(Box<[Ipv4Addr]>),
     Hostname(String),
-    BroadcastAddress(IPv4Addr),
+    BroadcastAddress(Ipv4Addr),
     LeaseTime(u32),
-    AddressRequest(IPv4Addr),
+    AddressRequest(Ipv4Addr),
     MessageType(PacketType),
-    ServerIdentifier(IPv4Addr),
+    ServerIdentifier(Ipv4Addr),
     RenewalTime(u32),
     RebindingTime(u32),
     ClientIdentifier(Box<[u8]>),
@@ -222,13 +224,13 @@ impl Arbitrary for DhcpOption {
         match u8::arbitrary(gen) % 14 {
             0  => DhcpOption::SubnetMask(Arbitrary::arbitrary(gen)),
             1  => {
-                let vec: Vec<IPv4Addr> = Arbitrary::arbitrary(gen);
-                let vec2: Vec<IPv4Addr> = vec.into_iter().take(32).collect();
+                let vec: Vec<Ipv4Addr> = Arbitrary::arbitrary(gen);
+                let vec2: Vec<Ipv4Addr> = vec.into_iter().take(32).collect();
                 DhcpOption::Router(vec2.into_boxed_slice())
             },
             2  => {
-                let vec: Vec<IPv4Addr> = Arbitrary::arbitrary(gen);
-                let vec2: Vec<IPv4Addr> = vec.into_iter().take(32).collect();
+                let vec: Vec<Ipv4Addr> = Arbitrary::arbitrary(gen);
+                let vec2: Vec<Ipv4Addr> = vec.into_iter().take(32).collect();
                 DhcpOption::DomainNameServer(vec2.into_boxed_slice())
             },
             3  => DhcpOption::Hostname(Arbitrary::arbitrary(gen)),
@@ -344,7 +346,7 @@ impl DhcpOption {
         if buffer[1] != 4 {
             return Err("Subnetmask DHCP option size wasn't 4".into());
         }
-        let addr = IPv4Addr::from_buffer(&buffer[2..]);
+        let addr = Ipv4Addr::from_buffer(&buffer[2..]);
         return Ok(DhcpOption::SubnetMask(addr));
     }
 
@@ -354,7 +356,7 @@ impl DhcpOption {
         }
         let mut ret = Vec::with_capacity(buffer[1] as usize / 4);
         for i in 0..(buffer[1] as usize / 4) {
-            let addr = IPv4Addr::from_buffer(&buffer[2 + 4 * i..]);
+            let addr = Ipv4Addr::from_buffer(&buffer[2 + 4 * i..]);
             ret.push(addr)
         }
         return Ok(DhcpOption::Router(ret.into_boxed_slice()));
@@ -366,7 +368,7 @@ impl DhcpOption {
         }
         let mut ret = Vec::with_capacity(buffer[1] as usize / 4);
         for i in 0..(buffer[1] as usize / 4) {
-            let addr = IPv4Addr::from_buffer(&buffer[2 + 4 * i..]);
+            let addr = Ipv4Addr::from_buffer(&buffer[2 + 4 * i..]);
             ret.push(addr)
         }
         return Ok(DhcpOption::DomainNameServer(ret.into_boxed_slice()));
@@ -382,7 +384,7 @@ impl DhcpOption {
         if buffer[1] != 4 {
             return Err("Subnetmask DHCP option size wasn't 4".into());
         }
-        let addr = IPv4Addr::from_buffer(&buffer[2..]);
+        let addr = Ipv4Addr::from_buffer(&buffer[2..]);
         return Ok(DhcpOption::BroadcastAddress(addr));
     }
 
@@ -390,7 +392,7 @@ impl DhcpOption {
         if buffer[1] != 4 {
             return Err("Subnetmask DHCP option size wasn't 4".into());
         }
-        let addr = IPv4Addr::from_buffer(&buffer[2..]);
+        let addr = Ipv4Addr::from_buffer(&buffer[2..]);
         return Ok(DhcpOption::AddressRequest(addr));
     }
 
@@ -398,7 +400,7 @@ impl DhcpOption {
         if buffer[1] != 4 {
             return Err("Subnetmask DHCP option size wasn't 4".into());
         }
-        let addr = IPv4Addr::from_buffer(&buffer[2..]);
+        let addr = Ipv4Addr::from_buffer(&buffer[2..]);
         return Ok(DhcpOption::ServerIdentifier(addr));
     }
 
@@ -518,10 +520,10 @@ pub struct DhcpPacket<Hw> {
     pub packet_type: PacketType,
     pub xid: u32,
     pub seconds: u16,
-    pub client_addr: Option<IPv4Addr>,
-    pub your_addr: Option<IPv4Addr>,
-    pub server_addr: Option<IPv4Addr>,
-    pub gateway_addr: Option<IPv4Addr>,
+    pub client_addr: Option<Ipv4Addr>,
+    pub your_addr: Option<Ipv4Addr>,
+    pub server_addr: Option<Ipv4Addr>,
+    pub gateway_addr: Option<Ipv4Addr>,
     pub client_hwaddr: Hw,
     pub options: Vec<DhcpOption>,
     pub flags: Vec<DhcpFlags>,
@@ -562,7 +564,7 @@ flag.get_value());
         buffer.write_u16::<NetworkEndian>(value).unwrap();
     }
 
-    fn push_ip(ip: &Option<IPv4Addr>, buffer: &mut Vec<u8>) {
+    fn push_ip(ip: &Option<Ipv4Addr>, buffer: &mut Vec<u8>) {
         match ip {
             &None => buffer.extend([0, 0, 0, 0,].iter()),
             &Some(ref x) => x.push_to(buffer)
@@ -612,9 +614,9 @@ flag.get_value());
         return buffer;
     }
 
-    fn get_ip(buffer: &[u8]) -> Option<IPv4Addr> {
-        let ip = IPv4Addr::from_buffer(buffer);
-        if ip == IPv4Addr([0, 0, 0, 0]) {
+    fn get_ip(buffer: &[u8]) -> Option<Ipv4Addr> {
+        let ip = Ipv4Addr::from_buffer(buffer);
+        if ip == Ipv4Addr::new(0, 0, 0, 0) {
             return None;
         } else {
             return Some(ip);
