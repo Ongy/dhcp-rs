@@ -1,4 +1,7 @@
+extern crate rs_config;
 extern crate byteorder;
+
+use rs_config::ConfigAble;
 
 use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 
@@ -18,7 +21,7 @@ use quickcheck::Gen;
 use frame::ethernet::EthernetAddr;
 use frame::ip4::IPv4Addr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ConfigAble)]
 pub enum PacketType {
     Discover,
     Offer,
@@ -133,7 +136,7 @@ impl IPv4Addr {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, ConfigAble)]
 pub struct ClasslessRoute {
     pub net: IPv4Addr,
     pub prefix: u8,
@@ -195,7 +198,7 @@ impl Arbitrary for ClasslessRoute {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, ConfigAble)]
 pub enum DhcpOption {
     SubnetMask(IPv4Addr), //This should probably be a better type
     Router(Box<[IPv4Addr]>),
@@ -602,6 +605,7 @@ flag.get_value());
         buffer.push(0xff);
     }
 
+    #[cfg(test)]
     fn serialize(&self) -> Vec<u8> {
         let mut buffer = Vec::with_capacity(1500);
         self.serialize_with(&mut buffer);

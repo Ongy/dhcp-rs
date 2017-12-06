@@ -3,6 +3,9 @@
 extern crate quickcheck;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate rs_config_derive;
+extern crate rs_config;
 
 extern crate pnet;
 extern crate time;
@@ -13,6 +16,7 @@ mod packet;
 mod pool;
 mod serialize;
 mod allocator;
+mod config;
 
 use pnet::datalink::{self, NetworkInterface};
 use pnet::datalink::Channel;
@@ -22,6 +26,54 @@ use std::ops::Deref;
 use frame::ethernet::{Ethernet, EthernetAddr};
 use frame::ip4::{IPv4Packet, IPv4Addr};
 use frame::udp::UDP;
+
+struct AllocationUnit {
+    selector: config::Selector,
+    allocator: allocator::Allocator,
+    options: Box<[packet::DhcpOption]>,
+}
+
+struct Interface {
+    allocators: Box<[AllocationUnit]>,
+    name: String,
+    my_mac: pnet::datalink::MacAddr,
+    my_ip: Vec<IPv4Addr>
+}
+
+fn get_allocation(conf: config::Pool, iface: &String) -> AllocationUnit {
+    let pool = conf.range.get_pool(iface);
+    let mut allocator = allocator::Allocator::new(pool);
+
+    return AllocationUnit {
+        selector: conf.selector,
+        options: conf.options.into_boxed_slice(),
+        allocator: allocator
+        };
+}
+
+fn get_interface(conf: config::Interface)
+        -> (Interface, Box<pnet::datalink::DataLinkSender>, Box<pnet::datalink::DataLinkReceiver>) {
+    let interfaces = datalink::interfaces();
+    let interface = interfaces.into_iter().filter(|iface: &NetworkInterface | iface.name == conf.name.as_str()).next().unwrap();
+    let mac = interface.mac.unwrap();
+    let ip = interface.ips.into_iter().next().unwrap();
+    let allocs: Vec<AllocationUnit> = conf.pool.into_iter().map(|x| get_allocation(x, &conf.name)).collect();
+
+    let (tx, rx) = match datalink::channel(&interface, Default::default()) {
+        Ok(Channel::Ethernet(tx, rx)) => (tx, rx),
+        Ok(_) => panic!("Unhandled channel type!"),
+        Err(e) => panic!("An error occured while creating ethernet channel: {}", e)
+    };
+
+    let ret = Interface {
+        name: conf.name,
+        my_mac: mac,
+        my_ip: ip,
+        allocators: allocs.into_boxed_slice()
+        };
+
+    return (ret, tx, rx);
+}
 
 fn decode_dhcp(rec: &[u8]) -> Result<packet::DhcpPacket<EthernetAddr>, String> {
     let tmp = serialize::deserialize::<Ethernet<IPv4Packet<UDP<packet::DhcpPacket<EthernetAddr>>>>>(rec)?;
@@ -146,10 +198,12 @@ fn handle_packet(mac: &pnet::datalink::MacAddr,
 }
 
 fn main() {
+    let _conf: config::Interface = rs_config::read_or_exit("/etc/dhcp/dhcpd.conf");
+
     let interfaces = datalink::interfaces();
     let interface = interfaces.into_iter().filter(|iface: &NetworkInterface | iface.name == "server").next().unwrap();
     let mac = interface.mac.unwrap();
-    let pool = pool::IPPool::new((192 << 24) + (168 << 16) + 2, (192 << 24) + (168 << 16) + 15);
+    let pool = pool::IPPool::new(IPv4Addr([192, 168, 0, 0]), IPv4Addr([192, 168, 0, 15]));
     let options = vec![
         packet::DhcpOption::DomainNameServer(vec![
              IPv4Addr([10, 0, 0, 1]),

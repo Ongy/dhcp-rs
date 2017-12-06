@@ -1,5 +1,8 @@
+extern crate rs_config;
 extern crate byteorder;
 extern crate pnet;
+
+use rs_config::ConfigAble;
 
 #[cfg(test)]
 use quickcheck::Arbitrary;
@@ -12,8 +15,24 @@ use self::pnet::util::checksum;
 use std::vec::Vec;
 use serialize::Serializeable;
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+use std::convert::Into;
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize, Hash, ConfigAble)]
 pub struct IPv4Addr (pub [u8;4]);
+
+impl Into<u32> for IPv4Addr {
+    fn into(self) -> u32 {
+        NetworkEndian::read_u32(&self.0)
+    }
+}
+
+impl From<u32> for IPv4Addr {
+    fn from(arg: u32) -> Self {
+        let mut buffer = [0;4];
+        NetworkEndian::write_u32(&mut buffer, arg);
+        IPv4Addr(buffer)
+    }
+}
 
 #[derive(Debug)]
 pub struct IPv4Packet<P> {

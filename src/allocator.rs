@@ -110,8 +110,7 @@ impl Allocator {
     }
 
     fn next_ip(&mut self) -> Option<IPv4Addr> {
-        let tmp = self.address_pool.next();
-        let pooled = tmp.map(|val| IPv4Addr([(val >> 24) as u8, (val >> 16) as u8, (val >> 8) as u8, val as u8]));
+        let pooled = self.address_pool.next();
         return pooled.or_else( || {
             let mut viable = self.get_viable_allocs();
             viable.sort_by_key(|alloc| alloc.last_seen);
