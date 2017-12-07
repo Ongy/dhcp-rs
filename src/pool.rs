@@ -1,3 +1,6 @@
+extern crate itertools;
+use self::itertools::Itertools;
+
 use std::boxed::Box;
 use std::collections::HashSet;
 use std::iter;
@@ -11,6 +14,12 @@ use std::net::Ipv4Addr;
 struct IPRange {
 	lower: u32,
 	upper: u32
+}
+
+impl IPRange {
+    fn get_name(&self) -> String {
+        format!("{}-{}", Ipv4Addr::from(self.lower), Ipv4Addr::from(self.upper))
+    }
 }
 
 #[derive(Debug)]
@@ -94,4 +103,8 @@ impl IPPool {
 	pub fn is_suitable(&self, ip: u32) -> bool {
 		return self.ranges.iter().any(|range| range.lower <= ip && range.upper >= ip);
 	}
+
+    pub fn get_name(&self) -> String {
+        self.ranges.iter().map(|r| r.get_name()).join("_")
+    }
 }

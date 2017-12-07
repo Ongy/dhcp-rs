@@ -11,9 +11,16 @@ use quickcheck::Gen;
 use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 use std::vec::Vec;
 use serialize::Serializeable;
+use ::pnet::datalink::MacAddr;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, ConfigAble)]
 pub struct EthernetAddr (pub [u8;6]);
+
+impl<'a> From<&'a MacAddr> for EthernetAddr {
+    fn from(arg: &'a MacAddr) -> Self {
+        EthernetAddr([arg.0, arg.1, arg.2, arg.3, arg.4, arg.5])
+    }
+}
 
 #[derive(Debug)]
 pub struct Ethernet<P> {

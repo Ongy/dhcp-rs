@@ -37,9 +37,24 @@ struct AllocationUnit {
 
 struct Interface {
     allocators: Box<[AllocationUnit]>,
-    _name: String,
+    name: String,
     my_mac: pnet::datalink::MacAddr,
     _my_ip: Vec<Ipv4Addr>
+}
+
+impl Interface {
+    fn save_to(&self, dir: &std::path::Path) {
+        if !(dir.exists() && dir.is_dir()){
+            return;
+        }
+
+        let my_dir = dir.join(&self.name);
+        std::fs::create_dir_all(my_dir.as_path()).unwrap();
+
+        for alloc in self.allocators.iter() {
+            alloc.allocator.save_to(my_dir.as_path());
+        }
+    }
 }
 
 fn alloc_for_client<'a>(aus: &'a mut Box<[AllocationUnit]>, client: &lease::Client<::frame::ethernet::EthernetAddr>) -> Option<&'a mut AllocationUnit> {
@@ -48,7 +63,9 @@ fn alloc_for_client<'a>(aus: &'a mut Box<[AllocationUnit]>, client: &lease::Clie
 
 fn get_allocation(conf: config::Pool, iface: &String) -> AllocationUnit {
     let pool = conf.range.get_pool(iface);
-    let allocator = allocator::Allocator::new(pool);
+    let mut allocator = allocator::Allocator::new(pool);
+
+    allocator.read_from(std::path::Path::new("/tmp/dhcpd"));
 
     return AllocationUnit {
         selector: conf.selector,
@@ -79,7 +96,7 @@ fn get_interface(conf: config::Interface)
         }).collect();
 
     let ret = Interface {
-        _name: name,
+        name: name,
         my_mac: mac,
         _my_ip: ip,
         allocators: allocs.into_boxed_slice()
@@ -149,7 +166,7 @@ fn handle_request(
             let udp = UDP { src: 67, dst: 68, payload: offer};
             let ip = IPv4Packet { src: Ipv4Addr::new(192, 168, 0, 1), dst:Ipv4Addr::new(255, 255, 255, 255), ttl: 64, protocol: 17, payload: udp};
             let mac = &iface.my_mac;
-            let ethernet = Ethernet{src: EthernetAddr([mac.0, mac.1, mac.2, mac.3, mac.4, mac.5]), dst: request.client_hwaddr.clone(), eth_type: 0x0800, payload: ip};
+            let ethernet = Ethernet{src: EthernetAddr::from(mac), dst: request.client_hwaddr.clone(), eth_type: 0x0800, payload: ip};
 
             let tmp = serialize::serialize(&ethernet);
 
@@ -191,7 +208,8 @@ fn send_offer(
 
         let udp = UDP { src: 67, dst: 68, payload: offer};
         let ip = IPv4Packet { src: Ipv4Addr::new(192, 168, 0, 1), dst:Ipv4Addr::new(255, 255, 255, 255), ttl: 64, protocol: 17, payload: udp};
-        let ethernet = Ethernet{src: EthernetAddr([iface.my_mac.0, iface.my_mac.1, iface.my_mac.2, iface.my_mac.3, iface.my_mac.4, iface.my_mac.5]), dst: discover.client_hwaddr.clone(), eth_type: 0x0800, payload: ip};
+        let mac = &iface.my_mac;
+        let ethernet = Ethernet{src: EthernetAddr::from(mac), dst: discover.client_hwaddr.clone(), eth_type: 0x0800, payload: ip};
 
         let tmp = serialize::serialize(&ethernet);
 
@@ -224,5 +242,7 @@ fn main() {
             Err(x) => println!("{:?}", x),
             Ok(x) => handle_packet(&mut tx, &mut iface, x),
         }
+
+        iface.save_to(std::path::Path::new("/tmp/dhcpd"));
     }
 }

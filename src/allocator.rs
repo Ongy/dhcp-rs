@@ -1,5 +1,9 @@
 extern crate time;
 use std::iter::Iterator;
+use std;
+
+use std::io::Write;
+use std::io::Read;
 
 extern crate serde;
 extern crate serde_json;
@@ -100,13 +104,24 @@ impl Allocator {
         self.get_allocation_mut(client, addr).map(|x| &*x)
     }
 
-
-    pub fn seralize_leases(&self) -> String {
+    fn serialize_leases(&self) -> String {
         serde_json::to_string(&self.leases).unwrap()
     }
 
-    pub fn seralize_allocs(&self) -> String {
+    fn serialize_allocs(&self) -> String {
         serde_json::to_string(&self.allocations).unwrap()
+    }
+
+    fn deserialize_leases(&mut self, leases: &str) {
+        self.leases = serde_json::from_str(leases).unwrap();
+    }
+
+    fn deserialize_allocs(&mut self, allocs: &str) {
+        self.allocations = serde_json::from_str(allocs).unwrap();
+
+        for alloc in &self.allocations {
+            self.address_pool.set_used(alloc.assigned.into());
+        }
     }
 
     fn next_ip(&mut self) -> Option<Ipv4Addr> {
@@ -125,5 +140,44 @@ impl Allocator {
 
             return None;
             });
+    }
+
+    fn get_name(&self) -> String {
+        self.address_pool.get_name()
+    }
+
+    pub fn read_from(&mut self, dir: &std::path::Path) {
+        let my_dir = dir.join(self.get_name());
+        if !(my_dir.exists() && my_dir.is_dir()){
+            return;
+        }
+        let lease_file = my_dir.join("leases.json");
+        let mut lease = std::fs::File::open(lease_file).unwrap();
+        let mut lease_str = String::new();
+        lease.read_to_string(&mut lease_str).unwrap();
+        self.deserialize_leases(lease_str.as_str());
+
+        let alloc_file = my_dir.join("allocs.json");
+        let mut alloc = std::fs::File::open(alloc_file).unwrap();
+        let mut alloc_str = String::new();
+        alloc.read_to_string(&mut alloc_str).unwrap();
+        self.deserialize_allocs(alloc_str.as_str());
+    }
+
+    pub fn save_to(&self, dir: &std::path::Path) {
+        if !(dir.exists() && dir.is_dir()){
+            return;
+        }
+
+        let my_dir = dir.join(self.get_name());
+        std::fs::create_dir_all(my_dir.as_path()).unwrap();
+
+        let lease_file = my_dir.join("leases.json");
+        let mut leases = std::fs::File::create(lease_file).unwrap();
+        leases.write_all(self.serialize_leases().as_bytes()).unwrap();
+
+        let alloc_file = my_dir.join("allocations.json");
+        let mut allocs = std::fs::File::create(alloc_file).unwrap();
+        allocs.write_all(self.serialize_allocs().as_bytes()).unwrap();
     }
 }

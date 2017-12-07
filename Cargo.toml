@@ -12,6 +12,7 @@ serde_derive = "*"
 serde_json = "*"
 quickcheck = "*"
 ipnetwork = "0.12"
+itertools = "*"
 
 [dependencies.rs-config]
 git = "https://github.com/Ongy/config-rs"
