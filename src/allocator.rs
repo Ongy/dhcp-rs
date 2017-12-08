@@ -157,7 +157,7 @@ impl Allocator {
         lease.read_to_string(&mut lease_str).unwrap();
         self.deserialize_leases(lease_str.as_str());
 
-        let alloc_file = my_dir.join("allocs.json");
+        let alloc_file = my_dir.join("allocations.json");
         let mut alloc = std::fs::File::open(alloc_file).unwrap();
         let mut alloc_str = String::new();
         alloc.read_to_string(&mut alloc_str).unwrap();
@@ -179,5 +179,9 @@ impl Allocator {
         let alloc_file = my_dir.join("allocations.json");
         let mut allocs = std::fs::File::create(alloc_file).unwrap();
         allocs.write_all(self.serialize_allocs().as_bytes()).unwrap();
+    }
+
+    pub fn get_bounds(&self) -> (Ipv4Addr, Ipv4Addr) {
+        (self.address_pool.get_lowest(), self.address_pool.get_highest())
     }
 }

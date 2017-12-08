@@ -107,4 +107,12 @@ impl IPPool {
     pub fn get_name(&self) -> String {
         self.ranges.iter().map(|r| r.get_name()).join("_")
     }
+
+    pub fn get_lowest(&self) -> Ipv4Addr {
+        self.ranges.iter().map(|r| r.lower).min().unwrap().into()
+    }
+
+    pub fn get_highest(&self) -> Ipv4Addr {
+        self.ranges.iter().map(|r| r.upper).max().unwrap().into()
+    }
 }
