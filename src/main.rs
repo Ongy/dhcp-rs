@@ -21,53 +21,16 @@ mod pool;
 mod serialize;
 mod allocator;
 mod config;
+mod allocationunit;
+mod interface;
 
-use pnet::datalink::{self, NetworkInterface};
-use pnet::datalink::Channel;
-
+use interface::Interface;
 use std::ops::Deref;
 
 use frame::ethernet::{Ethernet, EthernetAddr};
 use frame::ip4::{IPv4Packet};
 use frame::udp::UDP;
 use std::net::Ipv4Addr;
-use std::io::ErrorKind;
-
-struct AllocationUnit {
-    selector: config::Selector,
-    allocator: allocator::Allocator,
-    options: Box<[packet::DhcpOption]>,
-}
-
-struct Interface {
-    allocators: Box<[AllocationUnit]>,
-    name: String,
-    my_mac: pnet::datalink::MacAddr,
-    my_ip: Vec<Ipv4Addr>
-}
-
-impl Interface {
-    fn save_to(&self, dir: &std::path::Path) {
-        info!("Saving interface {}", &self.name);
-        if !(dir.exists() && dir.is_dir()){
-            warn!("Target directory for saving interface {} didn't exist", &self.name);
-            return;
-        }
-
-        let my_dir = dir.join(&self.name);
-        let _ = std::fs::create_dir_all(my_dir.as_path()).map_err(|e| {
-                error!("Couldn't create storage directory for interface: {} in {}: {}", &self.name, dir.to_string_lossy(), e);
-                ()
-            });
-
-        for alloc in self.allocators.iter() {
-            let _ = alloc.allocator.save_to(my_dir.as_path()).map_err(|_| {
-                error!("Encountered error while storing allocator {} on {}", alloc.allocator.get_name(), self.name);
-                ()
-                });
-        }
-    }
-}
 
 fn get_server_ip<'a, I>(arg: I, client: Ipv4Addr, mask: Ipv4Addr) -> Option<&'a Ipv4Addr>
     where I: IntoIterator<Item=&'a Ipv4Addr> {
@@ -85,117 +48,10 @@ fn get_server_ip<'a, I>(arg: I, client: Ipv4Addr, mask: Ipv4Addr) -> Option<&'a 
     return None;
 }
 
-fn alloc_for_client<'a>(aus: &'a mut Box<[AllocationUnit]>,
+fn alloc_for_client<'a>(aus: &'a mut Box<[allocationunit::AllocationUnit]>,
                         client: &lease::Client<::frame::ethernet::EthernetAddr>)
-                        -> Option<&'a mut AllocationUnit> {
-    aus.iter_mut().find(|alloc| alloc.selector.is_suitable(client))
-}
-
-impl AllocationUnit {
-
-    //TODO: Pass debug info into here for logs?
-    fn default_options(opts: &mut Vec<packet::DhcpOption>,
-                       alloc: &allocator::Allocator) {
-        if !opts.iter().any(|opt| opt.get_type() == 51) {
-            info!("Defaulting lease time");
-            opts.push(packet::DhcpOption::LeaseTime(86400));
-        }
-
-        if !opts.iter().any(|opt| opt.get_type() == 1) {
-            warn!("Defaulting SubnetMask");
-
-            let (min, max) = alloc.get_bounds();
-            let min_u32: u32 = min.into();
-            let max_u32: u32 = max.into();
-
-            /* Get the number of bits in the netmask */
-            let prefix = (min_u32 ^ max_u32).leading_zeros();
-            let mask = (!0u32) << (32 - prefix);
-            let val = Ipv4Addr::from(mask);
-
-            opts.push(packet::DhcpOption::SubnetMask(val));
-        }
-    }
-
-    fn new(conf: config::Pool, iface: &String) -> Self {
-        let pool = conf.range.get_pool(iface);
-        info!("Creating allocator for {} with pool {}", iface, pool.get_name());
-        let mut allocator = allocator::Allocator::new(pool);
-        let mut opts = conf.options;
-        Self::default_options(&mut opts, &allocator);
-
-        let _ = allocator.read_from(std::path::Path::new("/tmp/dhcpd").join(iface).as_path()).map_err(|e| {
-                match e.kind() {
-                    ErrorKind::NotFound => {
-                        info!("Couldn't find file or directory while loading allocator: {} on {}", allocator.get_name(), iface);
-                    },
-                    _ => {
-                            error!("Couldn't read allocator {} on interface {}: {}", allocator.get_name(), iface, e);
-                            println!("Couldn't read allocator {} on interface {}: {}", allocator.get_name(), iface, e);
-                            std::process::exit(1);
-                        },
-                }
-            });
-
-        return AllocationUnit {
-            selector: conf.selector,
-            options: opts.into_boxed_slice(),
-            allocator: allocator
-            };
-    }
-
-    // We can savely unwrap() here because we enforce the exiistance over default_options called by
-    // new
-    fn get_mask<'a>(&'a self) -> &'a Ipv4Addr {
-        self.options.iter().filter_map(|x| if x.get_type() == 1 {Some(x)} else {None}).next().map(|x| match *x {
-                packet::DhcpOption::SubnetMask(ref mask) => mask,
-                _ => panic!("Found non SubnetMask SubnetMask"),
-            }).unwrap()
-    }
-}
-
-
-
-fn get_interface(conf: config::Interface)
-        -> (Interface, Box<pnet::datalink::DataLinkSender>, Box<pnet::datalink::DataLinkReceiver>) {
-    let interfaces = datalink::interfaces();
-    let interface = match interfaces.into_iter().filter(|iface: &NetworkInterface | iface.name == conf.name.as_str()).next() {
-            Some(x) => x,
-            None => {
-                error!("Couldn't find interface: {}", conf.name);
-                println!("Couldn't find interface: {}", conf.name);
-                std::process::exit(1);
-            }
-        };
-    // I'm just going to asume this one, sorry :)
-    let mac = interface.mac.unwrap();
-
-    debug!("Trying to open interface: {}", &conf.name);
-
-    let (tx, rx) = match datalink::channel(&interface, Default::default()) {
-        Ok(Channel::Ethernet(tx, rx)) => (tx, rx),
-        Ok(_) => panic!("Unhandled channel type!"),
-        Err(e) => panic!("An error occured while creating ethernet channel: {}", e)
-    };
-    // I love/hate this silly borrow checker and the workarounds I come up with
-    let name = conf.name;
-    let pool = conf.pool;
-
-    let allocs: Vec<AllocationUnit> = pool.into_iter().map(|x| AllocationUnit::new(x, &name)).collect();
-    let ip = interface.ips.into_iter().flat_map(|x| match x {
-            ipnetwork::IpNetwork::V4(net) => Some(net.ip()),
-            _ => None,
-        }).collect();
-
-    let ret = Interface {
-        name: name,
-        my_mac: mac,
-        my_ip: ip,
-        allocators: allocs.into_boxed_slice()
-        };
-    info!("Using interface {} with local mac {} and ips {:?}", &ret.name, &ret.my_mac, &ret.my_ip);
-
-    return (ret, tx, rx);
+                        -> Option<&'a mut allocationunit::AllocationUnit> {
+    aus.iter_mut().find(|alloc| alloc.is_suitable(client))
 }
 
 fn decode_dhcp(rec: &[u8]) -> Result<packet::DhcpPacket<EthernetAddr>, String> {
@@ -203,55 +59,27 @@ fn decode_dhcp(rec: &[u8]) -> Result<packet::DhcpPacket<EthernetAddr>, String> {
     return Ok(tmp.payload.payload.payload);
 }
 
-fn get_client(pack: &packet::DhcpPacket<EthernetAddr>) -> lease::Client<EthernetAddr> {
-    let hostname = pack.options.iter().filter_map(|opt|
-        match opt {
-            &packet::DhcpOption::Hostname(ref name) => Some(name.clone()),
-            _ => None
-        }).next();
-    let ci = pack.options.iter().filter_map(|opt|
-        match opt {
-            &packet::DhcpOption::ClientIdentifier(ref c) => Some(c.clone()),
-            _ => None
-        }).next();
-
-    let ret = lease::Client {
-        hw_addr: pack.client_hwaddr.clone(),
-        hostname: hostname,
-        client_identifier: ci
-        };
-
-    debug!("Created client: {:?}", &ret);
-
-    return ret;
-}
-
-fn handle_request(tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
-                  iface: &mut Interface,
-                  request: packet::DhcpPacket<EthernetAddr>
-        ) {
-    let client = get_client(&request);
-    let req_addr = request.options.iter().flat_map(|opt|
+fn get_ack(iface: &mut Interface, request: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
+    let client = lease::get_client(&request);
+    let req_addr = request.options.iter().filter_map(|opt|
         match opt {
             &packet::DhcpOption::AddressRequest(ip) => Some(ip.clone()),
             _ => None
         }).next();
     if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
         let mask = *au.get_mask();
-        if let Some(l) = au.allocator.get_lease_for(&client, req_addr) {
+        let mut opts: Vec<packet::DhcpOption> = au.get_options().iter().map(|x| (*x).clone()).collect();
+        if let Some(l) = au.get_lease_for(&client, req_addr) {
             let addr = l.assigned.clone();
             let s_ip = match get_server_ip(&iface.my_ip, addr, mask) {
                     Some(i) => i,
                     None => {
                         error!("Tried to assign an IP I can't find a suitable server address for!");
-                        return;
+                        return None;
                     },
                 };
 
-            let mut opts = vec![
-                packet::DhcpOption::ServerIdentifier(*s_ip)
-                ];
-            opts.extend(au.options.deref().iter().map(|x| (*x).clone()));
+            opts.push(packet::DhcpOption::ServerIdentifier(*s_ip));
             let answer = packet::DhcpPacket {
                 packet_type: packet::PacketType::Ack,
                 xid: request.xid,
@@ -265,26 +93,44 @@ fn handle_request(tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
                 flags: Vec::new(),
                 };
             debug!("Replying to request: {:?}", &answer);
-
-            let udp = UDP { src: 67, dst: 68, payload: answer};
-            let ip = IPv4Packet { src: *s_ip, dst:Ipv4Addr::new(255, 255, 255, 255), ttl: 64, protocol: 17, payload: udp};
-            let mac = &iface.my_mac;
-            let ethernet = Ethernet{src: EthernetAddr::from(mac), dst: request.client_hwaddr.clone(), eth_type: 0x0800, payload: ip};
-
-
-            let tmp = serialize::serialize(&ethernet);
-
-            tx.send_to(tmp.deref(), None);
+            return Some((answer, *s_ip));
         }
+
+        let answer = packet::DhcpPacket {
+            packet_type: packet::PacketType::Nack,
+            xid: request.xid,
+            seconds: 0,
+            client_addr: None,
+            your_addr: None,
+            server_addr: None,
+            gateway_addr: None,
+            client_hwaddr: request.client_hwaddr.clone(),
+            options: vec![packet::DhcpOption::Message("Can't give you this address. Did I offer it?".into())],
+            flags: Vec::new(),
+            };
+        let s_ip = iface.my_ip.get(0).unwrap();
+
+        return Some((answer, *s_ip))
     }
+    let answer = packet::DhcpPacket {
+        packet_type: packet::PacketType::Nack,
+        xid: request.xid,
+        seconds: 0,
+        client_addr: None,
+        your_addr: None,
+        server_addr: None,
+        gateway_addr: None,
+        client_hwaddr: request.client_hwaddr.clone(),
+        options: vec![packet::DhcpOption::Message("Can't find a viable allocator for this client".into())],
+        flags: Vec::new(),
+        };
+    let s_ip = iface.my_ip.get(0).unwrap();
+
+    Some((answer, *s_ip))
 }
 
-fn send_offer(
-        tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
-        iface: &mut Interface,
-        discover: packet::DhcpPacket<EthernetAddr>
-        ) {
-    let client = get_client(&discover);
+fn get_offer(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
+    let client = lease::get_client(&discover);
     let req_addr = discover.options.iter().flat_map(|opt|
         match *opt {
             packet::DhcpOption::AddressRequest(ip) => Some(ip.clone()),
@@ -292,15 +138,17 @@ fn send_offer(
         }).next();
     if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
         let mask = *au.get_mask();
-        if let Some(alloc) = au.allocator.get_allocation(&client, req_addr) {
+        let mut opts: Vec<packet::DhcpOption> = au.get_options().iter().map(|x| (*x).clone()).collect();
+        if let Some(alloc) = au.get_allocation(&client, req_addr) {
             let addr = alloc.assigned;
             let s_ip = match get_server_ip(&iface.my_ip, addr, mask) {
                     Some(i) => i,
                     None => {
                         error!("Tried to assign an IP I can't find a suitable server address for!");
-                        return;
+                        return None;
                     },
                 };
+            opts.push(packet::DhcpOption::ServerIdentifier(*s_ip));
             let offer = packet::DhcpPacket {
                 packet_type: packet::PacketType::Offer,
                 xid: discover.xid,
@@ -310,22 +158,60 @@ fn send_offer(
                 server_addr: None,
                 gateway_addr: None,
                 client_hwaddr: discover.client_hwaddr.clone(),
-                options: vec![
-                    packet::DhcpOption::ServerIdentifier(*s_ip)
-                    ],
+                options: opts,
                 flags: Vec::new(),
                 };
             debug!("Making offer: {:?}", &offer);
-
-            let udp = UDP { src: 67, dst: 68, payload: offer};
-            let ip = IPv4Packet { src: *s_ip, dst:Ipv4Addr::new(255, 255, 255, 255), ttl: 64, protocol: 17, payload: udp};
-            let mac = &iface.my_mac;
-            let ethernet = Ethernet{src: EthernetAddr::from(mac), dst: discover.client_hwaddr.clone(), eth_type: 0x0800, payload: ip};
-
-            let tmp = serialize::serialize(&ethernet);
-
-            tx.send_to(tmp.deref(), None);
+            return Some((offer, *s_ip));
         }
+    }
+
+    None
+}
+
+//TODO: Check what exactly we need in here
+fn get_inform(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
+    let client = lease::get_client(&discover);
+    if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
+        let opts: Vec<packet::DhcpOption> = au.get_options().iter().map(|x| (*x).clone()).collect();
+        let offer = packet::DhcpPacket {
+            packet_type: packet::PacketType::Offer,
+            xid: discover.xid,
+            seconds: 0,
+            client_addr: None,
+            your_addr: None,
+            server_addr: None,
+            gateway_addr: None,
+            client_hwaddr: discover.client_hwaddr.clone(),
+            options: opts,
+            flags: Vec::new(),
+            };
+        debug!("Informing: {:?}", &offer);
+        let s_ip = iface.my_ip.get(0).unwrap();
+        return Some((offer, *s_ip));
+    }
+
+    None
+}
+
+fn get_answer(iface: &mut Interface, packet: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
+    match packet.packet_type {
+        packet::PacketType::Discover => {
+            trace!("Creating an offer");
+            get_offer(iface, packet)
+        },
+        packet::PacketType::Request => {
+            trace!("Handling a request");
+            get_ack(iface, packet)
+        },
+        packet::PacketType::Inform => {
+            trace!("Someone wants to get informed");
+            get_inform(iface, packet)
+        }
+        x => {
+            warn!("Found unhandled dhcp packet type: {:?}", x);
+            None
+        },
     }
 }
 
@@ -333,18 +219,16 @@ fn handle_packet(
         tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
         iface: &mut Interface,
         packet: packet::DhcpPacket<EthernetAddr>) {
-    match packet.packet_type {
-        packet::PacketType::Discover => {
-            trace!("Creating an offer");
-            send_offer(tx, iface, packet)
-        },
-        packet::PacketType::Request => {
-            trace!("Handling a request");
-            handle_request(tx, iface, packet)
-        },
-        x => {
-            warn!("Found unhandled dhcp packet type: {:?}", x);
-        },
+    let target_mac = packet.client_hwaddr.clone();
+    if let Some((answer, s_ip)) = get_answer(iface, packet) {
+
+        let udp = UDP { src: 67, dst: 68, payload: answer};
+        let ip = IPv4Packet { src: s_ip, dst:Ipv4Addr::new(255, 255, 255, 255), ttl: 64, protocol: 17, payload: udp};
+        let ethernet = Ethernet{src: EthernetAddr::from(&iface.my_mac), dst: target_mac, eth_type: 0x0800, payload: ip};
+
+        let tmp = serialize::serialize(&ethernet);
+
+        tx.send_to(tmp.deref(), None);
     }
 }
 
@@ -353,7 +237,7 @@ fn main() {
     trace!("Starting up dhcp server");
     let conf: config::Interface = rs_config::read_or_exit("/etc/dhcp/dhcpd.conf");
 
-    let (mut iface, mut tx, mut rx)  = get_interface(conf);
+    let (mut iface, mut tx, mut rx)  = Interface::get(conf);
 
     loop {
         trace!("Going into receive loop");

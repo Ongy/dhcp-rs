@@ -211,6 +211,7 @@ pub enum DhcpOption {
     AddressRequest(Ipv4Addr),
     MessageType(PacketType),
     ServerIdentifier(Ipv4Addr),
+    Message(String),
     RenewalTime(u32),
     RebindingTime(u32),
     ClientIdentifier(Box<[u8]>),
@@ -221,7 +222,7 @@ pub enum DhcpOption {
 #[cfg(test)]
 impl Arbitrary for DhcpOption {
     fn arbitrary<G: Gen>(gen: &mut G) -> Self {
-        match u8::arbitrary(gen) % 14 {
+        match u8::arbitrary(gen) % 15 {
             0  => DhcpOption::SubnetMask(Arbitrary::arbitrary(gen)),
             1  => {
                 let vec: Vec<Ipv4Addr> = Arbitrary::arbitrary(gen);
@@ -239,19 +240,20 @@ impl Arbitrary for DhcpOption {
             6  => DhcpOption::AddressRequest(Arbitrary::arbitrary(gen)),
             7  => DhcpOption::MessageType(Arbitrary::arbitrary(gen)),
             8  => DhcpOption::ServerIdentifier(Arbitrary::arbitrary(gen)),
-            9  => DhcpOption::RenewalTime(Arbitrary::arbitrary(gen)),
-            10 => DhcpOption::RebindingTime(Arbitrary::arbitrary(gen)),
-            11 => {
+            9  => DhcpOption::Message(Arbitrary::arbitrary(gen)),
+            10 => DhcpOption::RenewalTime(Arbitrary::arbitrary(gen)),
+            11 => DhcpOption::RebindingTime(Arbitrary::arbitrary(gen)),
+            12 => {
                 let vec: Vec<u8> = Arbitrary::arbitrary(gen);
                 let vec2: Vec<u8> = vec.into_iter().take(255).collect();
                 DhcpOption::ClientIdentifier(vec2.into_boxed_slice())
             },
-            12 => {
+            13 => {
                 let vec: Vec<ClasslessRoute> = Arbitrary::arbitrary(gen);
                 let vec2: Vec<ClasslessRoute> = vec.into_iter().take(28).collect();
                 DhcpOption::ClasslessRoutes(vec2.into_boxed_slice())
             },
-            13 => {
+            14 => {
                 let vec: Vec<u8> = Arbitrary::arbitrary(gen);
                 let vec2: Vec<u8> = vec.into_iter().take(255).collect();
                 DhcpOption::Unknown(13 as u8, vec2.into_boxed_slice())
@@ -273,6 +275,7 @@ impl DhcpOption {
             DhcpOption::LeaseTime(_) => 51,
             DhcpOption::MessageType(_) => 53,
             DhcpOption::ServerIdentifier(_) => 54,
+            DhcpOption::Message(_) => 56,
             DhcpOption::RenewalTime(_) => 58,
             DhcpOption::RebindingTime(_) => 59,
             DhcpOption::ClientIdentifier(_) => 60,
@@ -292,6 +295,7 @@ impl DhcpOption {
             DhcpOption::AddressRequest(_) => 4,
             DhcpOption::MessageType(_) => 1,
             DhcpOption::ServerIdentifier(_) => 4,
+            DhcpOption::Message(ref str) => str.as_bytes().len() as u8,
             DhcpOption::RenewalTime(_) => 4,
             DhcpOption::RebindingTime(_) => 4,
             DhcpOption::ClientIdentifier(ref val) => val.len() as u8,
@@ -320,6 +324,7 @@ impl DhcpOption {
             DhcpOption::AddressRequest(ref ip) => ip.push_to(buffer),
             DhcpOption::MessageType(ref t) => t.push_value(buffer),
             DhcpOption::ServerIdentifier(ref ip) => ip.push_to(buffer),
+            DhcpOption::Message(ref str) => buffer.extend(str.as_bytes().iter()),
             DhcpOption::RenewalTime(t) =>
                 buffer.write_u32::<NetworkEndian>(t).unwrap(),
             DhcpOption::RebindingTime(t) =>
@@ -404,6 +409,12 @@ impl DhcpOption {
         return Ok(DhcpOption::ServerIdentifier(addr));
     }
 
+    fn message_from_buffer(buffer: &[u8]) -> Result<Self, String> {
+        let len = buffer[1] as usize;
+        let str = String::from_utf8_lossy(&buffer[2..len + 2]);
+        return Ok(DhcpOption::Message(str.into()));
+    }
+
     fn leasetime_from_buffer(buffer: &[u8]) -> Result<Self, String> {
         if buffer[1] != 4 {
             return Err("Subnetmask DHCP option size wasn't 4".into());
@@ -471,6 +482,7 @@ impl DhcpOption {
             51 => Self::leasetime_from_buffer(buffer),
             53 => Ok(DhcpOption::MessageType(PacketType::from_buffer(buffer)?)),
             54 => Self::server_identifier_from_buffer(buffer),
+            56 => Self::message_from_buffer(buffer),
             58 => Self::renewal_from_buffer(buffer),
             59 => Self::rebinding_from_buffer(buffer),
             60 => Self::client_identifier_from_buffer(buffer),

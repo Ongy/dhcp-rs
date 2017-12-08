@@ -30,7 +30,7 @@ impl Allocator {
     fn get_viable_allocs(&self) -> Vec<&lease::Allocation<EthernetAddr, Ipv4Addr>> {
         return self.allocations.iter().filter(|alloc|
             self.leases.iter().all(|lease|
-                !lease.is_for_alloc(alloc))).collect();
+                !lease.is_for_alloc(alloc))).filter(|alloc| !alloc.forever).collect();
     }
 
     pub fn new(p: pool::IPPool) -> Allocator {
@@ -38,8 +38,7 @@ impl Allocator {
     }
 
     fn find_allocation(&self, client: &lease::Client<EthernetAddr>) -> Option<usize> {
-        self.allocations.iter().enumerate().find(|alloc|
-&alloc.1.client == client).map(|(i, _)| i)
+        self.allocations.iter().enumerate().find(|alloc| &alloc.1.client == client).map(|(i, _)| i)
     }
 
     // We *may* be out of allocatable addresses
@@ -51,7 +50,8 @@ impl Allocator {
                 let alloc = lease::Allocation{
                     assigned: ip,
                     client: client.clone(),
-                    last_seen: lease::SerializeableTime(time::get_time())
+                    last_seen: lease::SerializeableTime(time::get_time()),
+                    forever: false,
                     };
                 self.allocations.push(alloc);
                 self.allocations.len() - 1
@@ -89,7 +89,8 @@ impl Allocator {
                 let alloc = lease::Allocation {
                     client: client.clone(),
                     assigned: addr.clone(),
-                    last_seen: lease::SerializeableTime(time::get_time())
+                    last_seen: lease::SerializeableTime(time::get_time()),
+                    forever: false,
                     };
                 self.allocations.push(alloc);
                 Some(self.allocations.len() - 1)
