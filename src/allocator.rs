@@ -20,7 +20,7 @@ use std::net::Ipv4Addr;
 pub struct Allocator {
     allocations: Vec<lease::Allocation<EthernetAddr, Ipv4Addr>>,
     leases: Vec<lease::Lease<EthernetAddr, Ipv4Addr>>,
-    address_pool: pool::IPPool,
+    address_pool: pool::GPool<Ipv4Addr>,
 }
 
 impl Allocator {
@@ -33,7 +33,7 @@ impl Allocator {
                 !lease.is_for_alloc(alloc))).filter(|alloc| !alloc.forever).collect();
     }
 
-    pub fn new(p: pool::IPPool) -> Allocator {
+    pub fn new(p: pool::GPool<Ipv4Addr>) -> Allocator {
         Allocator { address_pool: p, leases: Vec::new(), allocations: Vec::new() }
     }
 
@@ -79,13 +79,12 @@ impl Allocator {
 
     fn get_requested(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> Option<&mut lease::Allocation<EthernetAddr, Ipv4Addr>> {
         trace!("Getting requested allocation");
-        let ip = u32::from(*addr);
         let found = self.allocations.iter().enumerate().find(|alloc| &alloc.1.assigned == addr).map(|(i, _)| i);
 
         found.or_else(|| {
-            if self.address_pool.is_suitable(ip) {
+            if self.address_pool.is_suitable(*addr) {
                 info!("Creating requested allocation for {:?} on ip {}", client, addr);
-                self.address_pool.set_used(ip);
+                self.address_pool.set_used(*addr);
                 let alloc = lease::Allocation {
                     client: client.clone(),
                     assigned: addr.clone(),
