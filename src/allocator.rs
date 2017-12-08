@@ -205,21 +205,45 @@ impl Allocator {
         Ok(())
     }
 
-    pub fn save_to(&self, dir: &std::path::Path) {
+    fn write_leases(&self, my_dir: &std::path::Path) -> Result<()> {
+        let lease_file = my_dir.join("leases.json");
+        let mut leases = std::fs::File::create(lease_file)?;
+        leases.write_all(self.serialize_leases().as_bytes())?;
+
+        Ok(())
+    }
+
+    fn write_allocs(&self, my_dir: &std::path::Path) -> Result<()> {
+        let alloc_file = my_dir.join("allocations.json");
+        let mut allocs = std::fs::File::create(alloc_file)?;
+        allocs.write_all(self.serialize_allocs().as_bytes())?;
+
+        Ok(())
+    }
+
+    pub fn save_to(&self, dir: &std::path::Path) -> Result<()> {
+        let mut ret = Ok(());
         if !(dir.exists() && dir.is_dir()){
-            return;
+            return Err(Error::new(ErrorKind::NotFound, format!("Couldn't find directory {} while trying to write allocator to file", dir.to_string_lossy())));
         }
 
         let my_dir = dir.join(self.get_name());
-        std::fs::create_dir_all(my_dir.as_path()).unwrap();
+        std::fs::create_dir_all(my_dir.as_path())?;
 
-        let lease_file = my_dir.join("leases.json");
-        let mut leases = std::fs::File::create(lease_file).unwrap();
-        leases.write_all(self.serialize_leases().as_bytes()).unwrap();
+        let _ = self.write_leases(my_dir.as_path()).map_err(|e| {
+                error!("Failed to write leases to file: {}", e);
+                ret = Err(e);
+                ()
+            });
 
-        let alloc_file = my_dir.join("allocations.json");
-        let mut allocs = std::fs::File::create(alloc_file).unwrap();
-        allocs.write_all(self.serialize_allocs().as_bytes()).unwrap();
+        let _ = self.write_allocs(my_dir.as_path()).map_err(|e| {
+                error!("Failed to write allocations to file: {}", e);
+                ret = Err(e);
+                ()
+            });
+
+
+        return ret;
     }
 
     pub fn get_bounds(&self) -> (Ipv4Addr, Ipv4Addr) {

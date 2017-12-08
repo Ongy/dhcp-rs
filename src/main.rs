@@ -61,7 +61,10 @@ impl Interface {
             });
 
         for alloc in self.allocators.iter() {
-            alloc.allocator.save_to(my_dir.as_path());
+            let _ = alloc.allocator.save_to(my_dir.as_path()).map_err(|_| {
+                error!("Encountered error while storing allocator {} on {}", alloc.allocator.get_name(), self.name);
+                ()
+                });
         }
     }
 }
