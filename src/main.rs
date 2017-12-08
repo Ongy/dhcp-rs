@@ -112,6 +112,7 @@ impl AllocationUnit {
 
     fn new(conf: config::Pool, iface: &String) -> Self {
         let pool = conf.range.get_pool(iface);
+        info!("Creating allocator for {} with pool {}", iface, pool.get_name());
         let mut allocator = allocator::Allocator::new(pool);
         let mut opts = conf.options;
         Self::default_options(&mut opts, &allocator);
@@ -126,6 +127,8 @@ impl AllocationUnit {
     }
 }
 
+// This unwrap isn't really justified here, but it should really be in AllocationUnit, where the
+// unwrap is justified by defaulting the mask into it on ::new()
 fn get_mask<'a, I>(arg: I) -> &'a Ipv4Addr
     where I: IntoIterator<Item=&'a packet::DhcpOption> {
     match *arg.into_iter().find(|x| match **x {
@@ -212,9 +215,10 @@ fn handle_request(
             _ => None
         }).next();
     if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
+        let mask = *get_mask(au.options.iter());
         if let Some(l) = au.allocator.get_lease_for(&client, req_addr) {
             let addr = l.assigned.clone();
-            let s_ip = match get_server_ip(&iface.my_ip, addr, *get_mask(au.options.iter())) {
+            let s_ip = match get_server_ip(&iface.my_ip, addr, mask) {
                     Some(i) => i,
                     None => {
                         error!("Tried to assign an IP I can't find a suitable server address for!");
@@ -266,8 +270,9 @@ fn send_offer(
         }).next();
     if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
         if let Some(alloc) = au.allocator.get_allocation(&client, req_addr) {
+            let mask = *get_mask(au.options.iter());
             let addr = alloc.assigned;
-            let s_ip = match get_server_ip(&iface.my_ip, addr, *get_mask(au.options.iter())) {
+            let s_ip = match get_server_ip(&iface.my_ip, addr, mask) {
                     Some(i) => i,
                     None => {
                         error!("Tried to assign an IP I can't find a suitable server address for!");
