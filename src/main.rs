@@ -31,6 +31,7 @@ use frame::ethernet::{Ethernet, EthernetAddr};
 use frame::ip4::{IPv4Packet};
 use frame::udp::UDP;
 use std::net::Ipv4Addr;
+use std::io::ErrorKind;
 
 struct AllocationUnit {
     selector: config::Selector,
@@ -54,7 +55,10 @@ impl Interface {
         }
 
         let my_dir = dir.join(&self.name);
-        std::fs::create_dir_all(my_dir.as_path()).unwrap();
+        let _ = std::fs::create_dir_all(my_dir.as_path()).map_err(|e| {
+                error!("Couldn't create storage directory for interface: {} in {}: {}", &self.name, dir.to_string_lossy(), e);
+                ()
+            });
 
         for alloc in self.allocators.iter() {
             alloc.allocator.save_to(my_dir.as_path());
@@ -117,7 +121,18 @@ impl AllocationUnit {
         let mut opts = conf.options;
         Self::default_options(&mut opts, &allocator);
 
-        allocator.read_from(std::path::Path::new("/tmp/dhcpd").join(iface).as_path());
+        let _ = allocator.read_from(std::path::Path::new("/tmp/dhcpd").join(iface).as_path()).map_err(|e| {
+                match e.kind() {
+                    ErrorKind::NotFound => {
+                        info!("Couldn't find file or directory while loading allocator: {} on {}", allocator.get_name(), iface);
+                    },
+                    _ => {
+                            error!("Couldn't read allocator {} on interface {}: {}", allocator.get_name(), iface, e);
+                            println!("Couldn't read allocator {} on interface {}: {}", allocator.get_name(), iface, e);
+                            std::process::exit(1);
+                        },
+                }
+            });
 
         return AllocationUnit {
             selector: conf.selector,
@@ -125,26 +140,31 @@ impl AllocationUnit {
             allocator: allocator
             };
     }
-}
 
-// This unwrap isn't really justified here, but it should really be in AllocationUnit, where the
-// unwrap is justified by defaulting the mask into it on ::new()
-fn get_mask<'a, I>(arg: I) -> &'a Ipv4Addr
-    where I: IntoIterator<Item=&'a packet::DhcpOption> {
-    match *arg.into_iter().find(|x| match **x {
-            packet::DhcpOption::SubnetMask(_) => true,
-            _ => false
-        }).unwrap() {
-        packet::DhcpOption::SubnetMask(ref mask) => mask,
-        _ => panic!("Found non SubnetMask SubnetMask"),
+    // We can savely unwrap() here because we enforce the exiistance over default_options called by
+    // new
+    fn get_mask<'a>(&'a self) -> &'a Ipv4Addr {
+        self.options.iter().filter_map(|x| if x.get_type() == 1 {Some(x)} else {None}).next().map(|x| match *x {
+                packet::DhcpOption::SubnetMask(ref mask) => mask,
+                _ => panic!("Found non SubnetMask SubnetMask"),
+            }).unwrap()
     }
 }
+
 
 
 fn get_interface(conf: config::Interface)
         -> (Interface, Box<pnet::datalink::DataLinkSender>, Box<pnet::datalink::DataLinkReceiver>) {
     let interfaces = datalink::interfaces();
-    let interface = interfaces.into_iter().filter(|iface: &NetworkInterface | iface.name == conf.name.as_str()).next().unwrap();
+    let interface = match interfaces.into_iter().filter(|iface: &NetworkInterface | iface.name == conf.name.as_str()).next() {
+            Some(x) => x,
+            None => {
+                error!("Couldn't find interface: {}", conf.name);
+                println!("Couldn't find interface: {}", conf.name);
+                std::process::exit(1);
+            }
+        };
+    // I'm just going to asume this one, sorry :)
     let mac = interface.mac.unwrap();
 
     debug!("Trying to open interface: {}", &conf.name);
@@ -203,10 +223,9 @@ fn get_client(pack: &packet::DhcpPacket<EthernetAddr>) -> lease::Client<Ethernet
     return ret;
 }
 
-fn handle_request(
-        tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
-        iface: &mut Interface,
-        request: packet::DhcpPacket<EthernetAddr>
+fn handle_request(tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
+                  iface: &mut Interface,
+                  request: packet::DhcpPacket<EthernetAddr>
         ) {
     let client = get_client(&request);
     let req_addr = request.options.iter().flat_map(|opt|
@@ -215,7 +234,7 @@ fn handle_request(
             _ => None
         }).next();
     if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
-        let mask = *get_mask(au.options.iter());
+        let mask = *au.get_mask();
         if let Some(l) = au.allocator.get_lease_for(&client, req_addr) {
             let addr = l.assigned.clone();
             let s_ip = match get_server_ip(&iface.my_ip, addr, mask) {
@@ -269,8 +288,8 @@ fn send_offer(
             _ => None
         }).next();
     if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
+        let mask = *au.get_mask();
         if let Some(alloc) = au.allocator.get_allocation(&client, req_addr) {
-            let mask = *get_mask(au.options.iter());
             let addr = alloc.assigned;
             let s_ip = match get_server_ip(&iface.my_ip, addr, mask) {
                     Some(i) => i,
@@ -335,15 +354,23 @@ fn main() {
 
     loop {
         trace!("Going into receive loop");
-        let rec = rx.next().unwrap();
-        trace!("Received something");
-        let packet = decode_dhcp(&rec);
-        debug!("{:?}", &packet);
-        match packet {
-            Err(_) => {},
-            Ok(x) => handle_packet(&mut tx, &mut iface, x),
+        match rx.next() {
+            Ok(rec) => {
+                trace!("Received something");
+                let packet = decode_dhcp(&rec);
+                debug!("{:?}", &packet);
+                match packet {
+                    Err(_) => {},
+                    Ok(x) => {
+                        handle_packet(&mut tx, &mut iface, x);
+                        iface.save_to(std::path::Path::new("/tmp/dhcpd"));
+                    },
+                }
+            }
+            Err(e) => {
+                error!("Failed to read from ethernet socket: {}", e);
+                break;
+            }
         }
-
-        iface.save_to(std::path::Path::new("/tmp/dhcpd"));
     }
 }

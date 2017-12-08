@@ -104,6 +104,10 @@ impl IPPool {
 		return self.ranges.iter().any(|range| range.lower <= ip && range.upper >= ip);
 	}
 
+//    pub fn is_used(&self, ip: u32) -> bool {
+//        return self.used.contains(&ip);
+//    }
+
     pub fn get_name(&self) -> String {
         self.ranges.iter().map(|r| r.get_name()).join("_")
     }

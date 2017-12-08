@@ -1,6 +1,7 @@
 extern crate time;
 use std::iter::Iterator;
 use std;
+use std::io::{Error, ErrorKind, Result};
 
 use std::io::Write;
 use std::io::Read;
@@ -43,8 +44,10 @@ impl Allocator {
 
     // We *may* be out of allocatable addresses
     fn allocation_for(&mut self, client: &lease::Client<EthernetAddr>) -> Option<&mut lease::Allocation<EthernetAddr, Ipv4Addr>> {
+        trace!("Getting generated allocation");
         self.find_allocation(client).or_else(||{
             self.next_ip().map(|ip| {
+                info!("Creating allocation for {:?} on ip {}", client, &ip);
                 let alloc = lease::Allocation{
                     assigned: ip,
                     client: client.clone(),
@@ -67,6 +70,7 @@ impl Allocator {
                 alloc.last_seen = lease::SerializeableTime(time::get_time());
                 lease::Lease::for_alloc(alloc, 7200)
             }).map(|l| {
+                info!("Created lease for {:?}: {:?}", client, &l);
                 self.leases.push(l);
                 self.leases.len() - 1
             })
@@ -74,11 +78,13 @@ impl Allocator {
     }
 
     fn get_requested(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> Option<&mut lease::Allocation<EthernetAddr, Ipv4Addr>> {
+        trace!("Getting requested allocation");
         let ip = u32::from(*addr);
-        let mut found = self.allocations.iter().enumerate().find(|alloc| &alloc.1.assigned == addr).map(|(i, _)| i);
+        let found = self.allocations.iter().enumerate().find(|alloc| &alloc.1.assigned == addr).map(|(i, _)| i);
 
-        if found.is_none() {
+        found.or_else(|| {
             if self.address_pool.is_suitable(ip) {
+                info!("Creating requested allocation for {:?} on ip {}", client, addr);
                 self.address_pool.set_used(ip);
                 let alloc = lease::Allocation {
                     client: client.clone(),
@@ -86,10 +92,12 @@ impl Allocator {
                     last_seen: lease::SerializeableTime(time::get_time())
                     };
                 self.allocations.push(alloc);
-                found = Some(self.allocations.len() - 1);
+                Some(self.allocations.len() - 1)
+            } else {
+                info!("Allocator isn't suitable for requested IP");
+                None
             }
-        }
-        return found.and_then(move |i| self.allocations.get_mut(i));
+        }).and_then(move |i| self.allocations.get_mut(i))
     }
 
     fn get_allocation_mut(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&mut lease::Allocation<EthernetAddr, Ipv4Addr>> {
@@ -101,6 +109,7 @@ impl Allocator {
 
     pub fn get_allocation(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Allocation<EthernetAddr, Ipv4Addr>> {
         // Simply cast the mut away
+        trace!("Trying to get an allocation");
         self.get_allocation_mut(client, addr).map(|x| &*x)
     }
 
@@ -112,16 +121,36 @@ impl Allocator {
         serde_json::to_string(&self.allocations).unwrap()
     }
 
-    fn deserialize_leases(&mut self, leases: &str) {
-        self.leases = serde_json::from_str(leases).unwrap();
+    fn ensure_alloc(&mut self, lease: &lease::Lease<EthernetAddr, Ipv4Addr>) -> Result<()> {
+        match self.get_allocation(&lease.client, Some(lease.assigned)) {
+            Some(_) => Ok(()),
+            None => {
+                error!("Couldn't create allocation for lease: {:?}", lease);
+                Err(Error::new(ErrorKind::InvalidInput, format!("Couldn't create allocation for lease: {:?}", lease)))
+            },
+        }
     }
 
-    fn deserialize_allocs(&mut self, allocs: &str) {
-        self.allocations = serde_json::from_str(allocs).unwrap();
+    fn deserialize_leases(&mut self, leases: &str) -> Result<()> {
+        let leases = serde_json::from_str(leases)?;
+
+        for lease in &leases {
+            self.ensure_alloc(lease)?;
+        }
+
+        self.leases = leases;
+
+        Ok(())
+    }
+
+    fn deserialize_allocs(&mut self, allocs: &str) -> Result<()> {
+        self.allocations = serde_json::from_str(allocs)?;
 
         for alloc in &self.allocations {
             self.address_pool.set_used(alloc.assigned.into());
         }
+
+        Ok(())
     }
 
     fn next_ip(&mut self) -> Option<Ipv4Addr> {
@@ -142,26 +171,38 @@ impl Allocator {
             });
     }
 
-    fn get_name(&self) -> String {
+    pub fn get_name(&self) -> String {
         self.address_pool.get_name()
     }
 
-    pub fn read_from(&mut self, dir: &std::path::Path) {
+    fn read_leases(&mut self, my_dir: &std::path::Path) -> Result<()> {
+        let lease_file = my_dir.join("leases.json");
+        let mut lease = std::fs::File::open(lease_file)?;
+        let mut lease_str = String::new();
+        lease.read_to_string(&mut lease_str)?;
+        self.deserialize_leases(lease_str.as_str())?;
+        Ok(())
+    }
+
+    fn read_allocs(&mut self, my_dir: &std::path::Path) -> Result<()> {
+        let alloc_file = my_dir.join("allocations.json");
+        let mut alloc = std::fs::File::open(alloc_file)?;
+        let mut alloc_str = String::new();
+        alloc.read_to_string(&mut alloc_str)?;
+        self.deserialize_allocs(alloc_str.as_str())?;
+        Ok(())
+    }
+
+    pub fn read_from(&mut self, dir: &std::path::Path) -> Result<()> {
         let my_dir = dir.join(self.get_name());
         if !(my_dir.exists() && my_dir.is_dir()){
-            return;
+            return Err(Error::new(ErrorKind::NotFound, format!("Couldn't find directory {} while trying to read allocator from file", my_dir.to_string_lossy())));
         }
-        let lease_file = my_dir.join("leases.json");
-        let mut lease = std::fs::File::open(lease_file).unwrap();
-        let mut lease_str = String::new();
-        lease.read_to_string(&mut lease_str).unwrap();
-        self.deserialize_leases(lease_str.as_str());
 
-        let alloc_file = my_dir.join("allocations.json");
-        let mut alloc = std::fs::File::open(alloc_file).unwrap();
-        let mut alloc_str = String::new();
-        alloc.read_to_string(&mut alloc_str).unwrap();
-        self.deserialize_allocs(alloc_str.as_str());
+        self.read_allocs(my_dir.as_path()).or_else(|e| if e.kind() == ErrorKind::NotFound { Ok(()) } else { Err(e) })?;
+        self.read_leases(my_dir.as_path()).or_else(|e| if e.kind() == ErrorKind::NotFound { Ok(()) } else { Err(e) })?;
+
+        Ok(())
     }
 
     pub fn save_to(&self, dir: &std::path::Path) {
