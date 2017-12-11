@@ -10,7 +10,7 @@ use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 use self::pnet::util::checksum;
 
 use std::vec::Vec;
-use serialize::Serializeable;
+use serialize::{Serializeable, HasCode};
 
 use std::convert::Into;
 use std::net::Ipv4Addr;
@@ -20,12 +20,11 @@ pub struct IPv4Packet<P> {
 	pub src: Ipv4Addr,
 	pub dst: Ipv4Addr,
 	pub ttl: u8,
-	pub protocol: u8,
 
 	pub payload: P
 }
 
-impl<P: Serializeable> Serializeable for IPv4Packet<P> {
+impl<P: Serializeable + HasCode<CodeType=u8>> Serializeable for IPv4Packet<P> {
 	fn serialize_onto(&self, buffer: &mut Vec<u8>) {
 		/* Version + IHL */
 		let start = buffer.len();
@@ -41,7 +40,7 @@ impl<P: Serializeable> Serializeable for IPv4Packet<P> {
 		buffer.push(0x00);
 
 		buffer.push(self.ttl);
-		buffer.push(self.protocol);
+		buffer.push(P::get_code());
 
 		/* First set checksum to 0 */
 		buffer.write_u16::<NetworkEndian>(0).unwrap();
@@ -88,12 +87,21 @@ impl<P: Serializeable> Serializeable for IPv4Packet<P> {
 		let ttl = buffer[8];
 		let protocol = buffer[9];
 
+        if protocol != P::get_code() {
+            return Err(String::from("IP payload was of the wrong protocol"));
+        }
+
 		let src = Ipv4Addr::new(buffer[12], buffer[13], buffer[14], buffer[15]);
 		let dst = Ipv4Addr::new(buffer[16], buffer[17], buffer[18], buffer[19]);
 
 		let payload = P::deserialize_from(&buffer[20..ip_len as usize])?;
 
 
-		return Ok(Self{src: src, dst: dst, ttl: ttl, protocol: protocol, payload: payload});
+		return Ok(Self{src: src, dst: dst, ttl: ttl, payload: payload});
 	}
+}
+
+impl<P> HasCode for IPv4Packet<P> {
+    type CodeType=u16;
+    fn get_code() -> u16 { 0x0800 }
 }

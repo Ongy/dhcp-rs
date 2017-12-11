@@ -12,7 +12,7 @@ use std;
 use std::fmt::Write;
 use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 use std::vec::Vec;
-use serialize::Serializeable;
+use serialize::{HasCode, Serializeable};
 use ::pnet::datalink::MacAddr;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, ConfigAble)]
@@ -41,15 +41,14 @@ impl<'a> From<&'a MacAddr> for EthernetAddr {
 pub struct Ethernet<P> {
 	pub dst: EthernetAddr,
 	pub src: EthernetAddr,
-	pub eth_type: u16,
 	pub payload: P
 }
 
-impl<P: Serializeable> Serializeable for Ethernet<P> {
+impl<P: Serializeable + HasCode<CodeType=u16>> Serializeable for Ethernet<P> {
 	fn serialize_onto(&self, buffer: &mut Vec<u8>) {
 		buffer.extend(self.dst.0.iter());
 		buffer.extend(self.src.0.iter());
-		buffer.write_u16::<NetworkEndian>(self.eth_type).unwrap();
+		buffer.write_u16::<NetworkEndian>(P::get_code()).unwrap();
 		self.payload.serialize_onto(buffer);
 	}
 
@@ -58,12 +57,17 @@ impl<P: Serializeable> Serializeable for Ethernet<P> {
 			return Err("Buffer to small, can't decode ethernet header".into());
 		}
 
+		let eth_type = NetworkEndian::read_u16(&buffer[12..]);
+
+        if eth_type != P::get_code() {
+            return Err(String::from("The ethernet payload didn't have the correct type"));
+        }
+
 		let dst = [buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5]];
 		let src = [buffer[6], buffer[7], buffer[8], buffer[9], buffer[10], buffer[11]];
-		let eth_type = NetworkEndian::read_u16(&buffer[12..]);
 		let payload = P::deserialize_from(&buffer[14..])?;
 
-		return Ok(Ethernet{src: EthernetAddr(src), dst: EthernetAddr(dst), eth_type: eth_type, payload: payload})
+		return Ok(Ethernet{src: EthernetAddr(src), dst: EthernetAddr(dst), payload: payload})
 	}
 }
 

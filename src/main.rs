@@ -130,14 +130,13 @@ fn get_ack(iface: &mut Interface, request: packet::DhcpPacket<EthernetAddr>) -> 
     Some((answer, *s_ip))
 }
 
+// TODO: This is horrible
 fn get_offer_alloc<'a>(au: &'a mut allocationunit::AllocationUnit,
-                   client: &lease::Client<::frame::ethernet::EthernetAddr>,
-                   req: Option<Ipv4Addr>) -> Option<&'a lease::Allocation<EthernetAddr, Ipv4Addr>> {
-    match au.get_allocation(&client, req) {
-        Some(x) => Some(x),
-        None => au.get_allocation(&client, None)
-    }
-
+                       client: &lease::Client<::frame::ethernet::EthernetAddr>,
+                       req: Option<Ipv4Addr>)
+                       -> Option<&'a lease::Allocation<EthernetAddr, Ipv4Addr>> {
+    let _ = au.get_allocation(&client, req);
+    au.get_allocation(&client, None)
 }
 
 fn get_offer(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
@@ -147,10 +146,10 @@ fn get_offer(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) 
             packet::DhcpOption::AddressRequest(ip) => Some(ip.clone()),
             _ => None
         }).next();
-    if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
+    if let Some(mut au) = alloc_for_client(&mut iface.allocators, &client) {
         let mask = *au.get_mask();
         let mut opts: Vec<packet::DhcpOption> = au.get_options().iter().map(|x| (*x).clone()).collect();
-        if let Some(alloc) = au.get_allocation(&client, req_addr) {
+        if let Some(alloc) = get_offer_alloc(&mut au, &client, req_addr) {
             let addr = alloc.assigned;
             let s_ip = match get_server_ip(&iface.my_ip, addr, mask) {
                     Some(i) => i,
@@ -234,8 +233,8 @@ fn handle_packet(
     if let Some((answer, s_ip)) = get_answer(iface, packet) {
 
         let udp = UDP { src: 67, dst: 68, payload: answer};
-        let ip = IPv4Packet { src: s_ip, dst:Ipv4Addr::new(255, 255, 255, 255), ttl: 64, protocol: 17, payload: udp};
-        let ethernet = Ethernet{src: EthernetAddr::from(&iface.my_mac), dst: target_mac, eth_type: 0x0800, payload: ip};
+        let ip = IPv4Packet { src: s_ip, dst:Ipv4Addr::new(255, 255, 255, 255), ttl: 64, payload: udp};
+        let ethernet = Ethernet{src: EthernetAddr::from(&iface.my_mac), dst: target_mac, payload: ip};
 
         let tmp = serialize::serialize(&ethernet);
 

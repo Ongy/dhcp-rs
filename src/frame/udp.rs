@@ -5,7 +5,7 @@ use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 //TODO: use self::pnet::util::checksum;
 
 use std::vec::Vec;
-use serialize::Serializeable;
+use serialize::{Serializeable, HasCode};
 
 
 #[derive(Debug)]
@@ -46,4 +46,10 @@ impl<P: Serializeable> Serializeable for UDP<P> {
 
 		return Ok(Self{src: src, dst: dst, payload: payload});
 	}
+}
+
+impl<P> HasCode for UDP<P> {
+    type CodeType=u8;
+
+    fn get_code() -> u8 { 17 }
 }

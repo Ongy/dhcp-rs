@@ -10,6 +10,11 @@ pub trait Serializeable
 	fn deserialize_from(&[u8]) -> Result<Self, String>;
 }
 
+pub trait HasCode {
+    type CodeType;
+    fn get_code() -> Self::CodeType;
+}
+
 pub fn serialize<P:Serializeable>(obj: &P) -> Box<[u8]> {
 	let mut buffer = Vec::with_capacity(1514);
 	obj.serialize_onto(&mut buffer);

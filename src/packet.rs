@@ -655,6 +655,9 @@ flag.get_value());
     }
 
     pub fn deserialize(buffer: &[u8]) -> Result<Self, String> {
+        if buffer.len() < 241 {
+            return Err(String::from("Message to short to contain dhcp"));
+        }
         let xid = NetworkEndian::read_u32(&buffer[4..]);
         let seconds = NetworkEndian::read_u16(&buffer[8..]);
         let flags = DhcpFlags::from_buffer(&buffer[10..])?;
