@@ -13,6 +13,7 @@ extern crate syslog;
 extern crate pnet;
 extern crate time;
 extern crate ipnetwork;
+extern crate privdrop;
 
 mod frame;
 mod lease;
@@ -69,7 +70,7 @@ fn get_ack(iface: &mut Interface, request: packet::DhcpPacket<EthernetAddr>) -> 
     if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
         let mask = *au.get_mask();
         let mut opts: Vec<packet::DhcpOption> = au.get_options().iter().map(|x| (*x).clone()).collect();
-        if let Some(l) = au.get_lease_for(&client, req_addr) {
+        if let Some(l) = au.get_renewed_lease(&client, req_addr) {
             let addr = l.assigned.clone();
             let s_ip = match get_server_ip(&iface.my_ip, addr, mask) {
                     Some(i) => i,
@@ -127,6 +128,16 @@ fn get_ack(iface: &mut Interface, request: packet::DhcpPacket<EthernetAddr>) -> 
     let s_ip = iface.my_ip.get(0).unwrap();
 
     Some((answer, *s_ip))
+}
+
+fn get_offer_alloc<'a>(au: &'a mut allocationunit::AllocationUnit,
+                   client: &lease::Client<::frame::ethernet::EthernetAddr>,
+                   req: Option<Ipv4Addr>) -> Option<&'a lease::Allocation<EthernetAddr, Ipv4Addr>> {
+    match au.get_allocation(&client, req) {
+        Some(x) => Some(x),
+        None => au.get_allocation(&client, None)
+    }
+
 }
 
 fn get_offer(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
@@ -235,9 +246,24 @@ fn handle_packet(
 fn main() {
     syslog::init(syslog::Facility::LOG_DAEMON, log::LogLevel::Trace.to_log_level_filter(), Some("dhcpd")).unwrap();
     trace!("Starting up dhcp server");
+
+    trace!("Changing to / cwd");
+    match std::env::set_current_dir("/") {
+        Ok(()) => {},
+        Err(e) => {
+            error!("Failed to change dir to /: {}", e);
+        }
+    }
     let conf: config::Interface = rs_config::read_or_exit("/etc/dhcp/dhcpd.conf");
 
     let (mut iface, mut tx, mut rx)  = Interface::get(conf);
+    match privdrop::PrivDrop::default().user("dhcp").apply() {
+        Ok(()) => {},
+        Err(e) => {
+            error!("Couldn't drop privileges. {}", e);
+            warn!("Running as root");
+        }
+    }
 
     loop {
         trace!("Going into receive loop");

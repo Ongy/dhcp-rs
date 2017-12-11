@@ -45,7 +45,7 @@ impl AllocationUnit {
     pub fn new(conf: config::Pool, iface: &String) -> Self {
         let pool = conf.range.get_pool(iface);
         info!("Creating allocator for {} with pool {}", iface, pool.get_name());
-        let mut allocator = allocator::Allocator::new(pool);
+        let mut allocator = allocator::Allocator::new(pool, conf.allocate, conf.lease);
         let mut opts = conf.options;
         Self::default_options(&mut opts, &allocator);
 
@@ -94,5 +94,9 @@ impl AllocationUnit {
 
     pub fn get_lease_for(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
         self.allocator.get_lease_for(client, addr)
+    }
+
+    pub fn get_renewed_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
+        self.allocator.get_renewed_lease(client, addr)
     }
 }

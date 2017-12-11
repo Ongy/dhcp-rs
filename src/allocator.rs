@@ -21,20 +21,87 @@ pub struct Allocator {
     allocations: Vec<lease::Allocation<EthernetAddr, Ipv4Addr>>,
     leases: Vec<lease::Lease<EthernetAddr, Ipv4Addr>>,
     address_pool: pool::GPool<Ipv4Addr>,
+
+    allocate_hook: Option<String>,
+    lease_hook: Option<String>
 }
 
 impl Allocator {
+    fn make_alloc(&self,
+                  assigned: Ipv4Addr,
+                  client: lease::Client<EthernetAddr>)
+                  -> lease::Allocation<EthernetAddr, Ipv4Addr> {
+        match self.allocate_hook {
+            None => {},
+            Some(ref path) => {
+                let hostname = client.hostname
+                                .as_ref()
+                                .map(|s| s.as_ref())
+                                .unwrap_or("");
+                let ip = format!("{}", &assigned);
+                let hwaddr = format!("{}", &client.hw_addr);
+                let cmd = std::process::Command::new(path)
+                            .arg(ip)
+                            .arg(hwaddr)
+                            .arg(hostname)
+                            .status();
+
+                if !(cmd.is_ok() && cmd.as_ref().unwrap().success()) {
+                    warn!("Failed to execute allocation notify command: {:?}", cmd);
+                }
+            }
+        }
+
+
+
+        let ret = lease::Allocation{
+            assigned: assigned,
+            client: client,
+            last_seen: lease::SerializeableTime(time::get_time()),
+            forever: false,
+            };
+
+        return ret;
+    }
+
+    fn renew_lease(lease_hook: &Option<String>,
+                  lease: &mut lease::Lease<EthernetAddr, Ipv4Addr>) {
+        match *lease_hook {
+            None => {},
+            Some(ref path) => {
+                let client = &lease.client;
+                let hostname = client.hostname
+                                .as_ref()
+                                .map(|s| s.as_ref())
+                                .unwrap_or("");
+                let ip = format!("{}", &lease.assigned);
+                let hwaddr = format!("{}", &client.hw_addr);
+                let cmd = std::process::Command::new(path)
+                            .arg(ip)
+                            .arg(hwaddr)
+                            .arg(hostname)
+                            .status();
+
+                if !(cmd.is_ok() && cmd.as_ref().unwrap().success()) {
+                    warn!("Failed to execute lease notify command: {:?}", cmd);
+                }
+            }
+        }
+
+        lease.lease_start = lease::SerializeableTime(time::get_time());
+    }
+
     /* Get the allocations we could reuse because there's no current lease
      * for them (which would lock them
      */
     fn get_viable_allocs(&self) -> Vec<&lease::Allocation<EthernetAddr, Ipv4Addr>> {
-        return self.allocations.iter().filter(|alloc|
-            self.leases.iter().all(|lease|
-                !lease.is_for_alloc(alloc))).filter(|alloc| !alloc.forever).collect();
+        return self.allocations.iter().filter(|alloc| !alloc.forever).filter(|alloc|
+            self.leases.iter().filter(|l| l.is_active()).all(|lease|
+                !lease.is_for_alloc(alloc))).collect();
     }
 
-    pub fn new(p: pool::GPool<Ipv4Addr>) -> Allocator {
-        Allocator { address_pool: p, leases: Vec::new(), allocations: Vec::new() }
+    pub fn new(p: pool::GPool<Ipv4Addr>, allocate: Option<String>, lease: Option<String>) -> Allocator {
+        Allocator { address_pool: p, leases: Vec::new(), allocations: Vec::new(), allocate_hook: allocate, lease_hook: lease}
     }
 
     fn find_allocation(&self, client: &lease::Client<EthernetAddr>) -> Option<usize> {
@@ -47,24 +114,75 @@ impl Allocator {
         self.find_allocation(client).or_else(||{
             self.next_ip().map(|ip| {
                 info!("Creating allocation for {:?} on ip {}", client, &ip);
-                let alloc = lease::Allocation{
-                    assigned: ip,
-                    client: client.clone(),
-                    last_seen: lease::SerializeableTime(time::get_time()),
-                    forever: false,
-                    };
+                let alloc = self.make_alloc(ip, client.clone());
                 self.allocations.push(alloc);
                 self.allocations.len() - 1
             })
         }).and_then(move |i| self.allocations.get_mut(i))
     }
 
+    /// Find the *index* of a lease in our store
+    /// This is a bit silly, but required because we can't return a reference to it, without
+    /// borrowing self, so this works around it
     fn find_lease(&self, client: &lease::Client<EthernetAddr>) -> Option<usize> {
         self.leases.iter().enumerate().find(|lease| &lease.1.client == client).map(|(i, _)| i)
     }
 
+    /// Update the lease for `client` if it assignes the address `addr` for the current time.
+    /// This should be used on lease renewal and will fire the apropriate events
+    fn touch_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> bool {
+        match self.leases.iter_mut().find(|lease| lease.client == *client) {
+            Some(l) => {
+                if !(l.assigned == *addr) {
+                    // We got a lease, but the client tried to renew another address?
+                    return false;
+                }
+
+                l.lease_start = lease::SerializeableTime(time::get_time());
+                true
+            }
+            // We don't have a lease for this client
+            None => false,
+        }
+    }
+
+    /// Update the allocation for `client` if it matches the provided `addr`.
+    /// This should be called on lease renewal or similar to ensure allocations aren't outdated
+    fn touch_allocation(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> bool {
+        match self.allocations.iter_mut().find(|alloc| alloc.client == *client) {
+            Some(a) => {
+                if !(a.assigned == *addr) {
+                    // We got an alloc, but the client tried to renew another address?
+                    return false;
+                }
+
+                a.last_seen = lease::SerializeableTime(time::get_time());
+                true
+            }
+            // We don't have a lease for this client
+            None => false,
+        }
+    }
+
+    /// Touch all relevant information about a client and make sure timestamps are updated
+    pub fn touch_client(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> bool {
+        self.touch_allocation(client, addr) && self.touch_lease(client, addr)
+    }
+
+    /// Get a lease for the `client` optionally try to get one specifically for the address
+    /// specified in `addr`.
+    /// This will first check the local store for an exiting lease, and if none is present it will
+    /// get an apropriate allocation and create a lease
     pub fn get_lease_for(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
-        //let mut found = self.find_lease(client);
+        self.get_lease_mut(client, addr).map(|x| &*x)
+    }
+
+    pub fn get_renewed_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
+        let hook = self.lease_hook.clone();
+        self.get_lease_mut(client, addr).map(|l| { Self::renew_lease(&hook, l); &*l })
+    }
+
+    fn get_lease_mut(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&mut lease::Lease<EthernetAddr, Ipv4Addr>> {
         self.find_lease(client).or_else(||{
             self.get_allocation_mut(client, addr).map(|alloc|{
                 alloc.last_seen = lease::SerializeableTime(time::get_time());
@@ -74,7 +192,7 @@ impl Allocator {
                 self.leases.push(l);
                 self.leases.len() - 1
             })
-        }).and_then(move |i| self.leases.get(i))
+        }).and_then(move |i| self.leases.get_mut(i))
     }
 
     fn get_requested(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> Option<&mut lease::Allocation<EthernetAddr, Ipv4Addr>> {
@@ -85,12 +203,7 @@ impl Allocator {
             if self.address_pool.is_suitable(*addr) {
                 info!("Creating requested allocation for {:?} on ip {}", client, addr);
                 self.address_pool.set_used(*addr);
-                let alloc = lease::Allocation {
-                    client: client.clone(),
-                    assigned: addr.clone(),
-                    last_seen: lease::SerializeableTime(time::get_time()),
-                    forever: false,
-                    };
+                let alloc = self.make_alloc(*addr, client.clone());
                 self.allocations.push(alloc);
                 Some(self.allocations.len() - 1)
             } else {

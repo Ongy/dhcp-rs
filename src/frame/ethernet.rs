@@ -8,6 +8,8 @@ use quickcheck::Arbitrary;
 #[cfg(test)]
 use quickcheck::Gen;
 
+use std;
+use std::fmt::Write;
 use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 use std::vec::Vec;
 use serialize::Serializeable;
@@ -15,6 +17,19 @@ use ::pnet::datalink::MacAddr;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, ConfigAble)]
 pub struct EthernetAddr (pub [u8;6]);
+
+impl std::fmt::Display for EthernetAddr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for i in 0..6 {
+            write!(f, "{:02x}", self.0[i])?;
+            if i != 5 {
+                f.write_char(':')?;
+            }
+        }
+
+        Ok(())
+    }
+}
 
 impl<'a> From<&'a MacAddr> for EthernetAddr {
     fn from(arg: &'a MacAddr) -> Self {

@@ -79,6 +79,13 @@ impl<H, I> Lease<H, I>
     }
 }
 
+impl<H, I> Lease<H, I> {
+    pub fn is_active(&self) -> bool {
+        let passed = time::get_time() - self.lease_start.0;
+        passed < time::Duration::seconds(self.lease_duration as i64)
+    }
+}
+
 pub fn get_client<H>(pack: &packet::DhcpPacket<H>) -> Client<H>
     where H: Clone + std::fmt::Debug {
     let hostname = pack.options.iter().filter_map(|opt|

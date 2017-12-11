@@ -37,6 +37,7 @@ impl Interface {
         }
     }
 
+    /// This requires `CAP_NET_ADMIN`
     pub fn get(conf: config::Interface)
             -> (Interface, Box<pnet::datalink::DataLinkSender>, Box<pnet::datalink::DataLinkReceiver>) {
         let interfaces = datalink::interfaces();
