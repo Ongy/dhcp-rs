@@ -275,7 +275,7 @@ fn main() {
                     Err(_) => {},
                     Ok(x) => {
                         handle_packet(&mut tx, &mut iface, x);
-                        iface.save_to(std::path::Path::new("/tmp/dhcpd"));
+                        iface.save_to(std::path::Path::new("/var/lib/dhcpd"));
                     },
                 }
             }

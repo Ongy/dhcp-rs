@@ -49,7 +49,7 @@ impl AllocationUnit {
         let mut opts = conf.options;
         Self::default_options(&mut opts, &allocator);
 
-        let _ = allocator.read_from(std::path::Path::new("/tmp/dhcpd").join(iface).as_path()).map_err(|e| {
+        let _ = allocator.read_from(std::path::Path::new("/var/lib/dhcpd").join(iface).as_path()).map_err(|e| {
                 match e.kind() {
                     ErrorKind::NotFound => {
                         info!("Couldn't find file or directory while loading allocator: {} on {}", allocator.get_name(), iface);

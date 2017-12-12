@@ -245,13 +245,13 @@ impl Allocator {
     }
 
     fn deserialize_leases(&mut self, leases: &str) -> Result<()> {
-        let leases = serde_json::from_str(leases)?;
+        let leases: Vec<lease::Lease<EthernetAddr, Ipv4Addr>> = serde_json::from_str(leases)?;
 
         for lease in &leases {
             self.ensure_alloc(lease)?;
         }
 
-        self.leases = leases;
+        self.leases = leases.into_iter().filter(|l| l.is_active()).collect();
 
         Ok(())
     }
