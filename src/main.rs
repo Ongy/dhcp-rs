@@ -292,7 +292,12 @@ fn main() {
         }
     }
 
-    for iface in conf.interfaces {
-        handle_interface(iface);
+    let threads: Vec<std::thread::JoinHandle<()>> =
+            conf.interfaces.into_iter()
+            .map(|i| std::thread::spawn(|| handle_interface(i)))
+            .collect();
+
+    for thread in threads {
+        let _ = thread.join();
     }
 }
