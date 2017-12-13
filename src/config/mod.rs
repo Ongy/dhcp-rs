@@ -1,39 +1,19 @@
 extern crate rs_config;
 
+mod ippool;
+use self::ippool::IPPool;
+
 use rs_config::ConfigAble;
 use std::net::Ipv4Addr;
 use ::frame::ethernet::EthernetAddr;
 
-use ::pool;
 use log::LogLevel;
-
-#[derive(Debug, ConfigAble)]
-pub struct IPRange {
-    pub lower: Ipv4Addr,
-    pub upper: Ipv4Addr
-}
 
 #[derive(Debug, ConfigAble)]
 pub struct IPNet(pub Ipv4Addr, pub u8);
 
 #[derive(Debug, ConfigAble)]
-pub enum IPPool {
-    Guess,
-    Range(IPRange),
-    Ranges(Box<[IPRange]>)
-}
-
-impl IPPool {
-    pub fn get_pool(self, _: &String) -> pool::GPool<Ipv4Addr> {
-        match self {
-            IPPool::Range(range) => pool::GPool::new(range.lower, range.upper),
-            IPPool::Ranges(ranges) => pool::GPool::new_multi(ranges.into_iter().map(|r| (r.lower, r.upper))),
-            _ => panic!("Didn't implement that pool method yet"),
-        }
-    }
-}
-
-#[derive(Debug, ConfigAble)]
+#[ConfigAttrs(default="Selector::All")]
 pub enum Selector {
     All,
     Macs(Box<[EthernetAddr]>),
