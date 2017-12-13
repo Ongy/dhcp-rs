@@ -242,18 +242,7 @@ fn handle_packet(
     }
 }
 
-fn main() {
-    syslog::init(syslog::Facility::LOG_DAEMON, log::LogLevel::Trace.to_log_level_filter(), Some("dhcpd")).unwrap();
-    trace!("Starting up dhcp server");
-
-    trace!("Changing to / cwd");
-    match std::env::set_current_dir("/") {
-        Ok(()) => {},
-        Err(e) => {
-            error!("Failed to change dir to /: {}", e);
-        }
-    }
-    let conf: config::Interface = rs_config::read_or_exit("/etc/dhcp/dhcpd.conf");
+fn handle_interface(conf: config::Interface) {
 
     let (mut iface, mut tx, mut rx)  = Interface::get(conf);
     match privdrop::PrivDrop::default().user("dhcp").apply() {
@@ -284,5 +273,26 @@ fn main() {
                 break;
             }
         }
+    }
+}
+
+fn main() {
+    let conf: config::Config = rs_config::read_or_exit("/etc/dhcp/dhcpd.conf");
+
+    syslog::init(syslog::Facility::LOG_DAEMON,
+                 conf.log_level.to_log_level_filter(),
+                 Some("dhcpd")).unwrap();
+    info!("Starting up dhcp server");
+
+    trace!("Changing to / cwd");
+    match std::env::set_current_dir("/") {
+        Ok(()) => {},
+        Err(e) => {
+            error!("Failed to change dir to /: {}", e);
+        }
+    }
+
+    for iface in conf.interfaces {
+        handle_interface(iface);
     }
 }

@@ -5,6 +5,7 @@ use std::net::Ipv4Addr;
 use ::frame::ethernet::EthernetAddr;
 
 use ::pool;
+use log::LogLevel;
 
 #[derive(Debug, ConfigAble)]
 pub struct IPRange {
@@ -69,4 +70,12 @@ pub struct Pool {
 pub struct Interface {
     pub name: String,
     pub pool: Vec<Pool>
+}
+
+#[derive(Debug, ConfigAble)]
+pub struct Config {
+    pub log_level: LogLevel,
+    #[ConfigAttrs(default="String::from(\"/var/lib/dhcpd\")")]
+    pub cache_dir: String,
+    pub interfaces: Vec<Interface>
 }
