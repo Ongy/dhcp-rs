@@ -128,55 +128,6 @@ impl Allocator {
         self.leases.iter().enumerate().find(|lease| &lease.1.client == client).map(|(i, _)| i)
     }
 
-    /// Update the lease for `client` if it assignes the address `addr` for the current time.
-    /// This should be used on lease renewal and will fire the apropriate events
-    fn touch_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> bool {
-        match self.leases.iter_mut().find(|lease| lease.client == *client) {
-            Some(l) => {
-                if !(l.assigned == *addr) {
-                    // We got a lease, but the client tried to renew another address?
-                    return false;
-                }
-
-                l.lease_start = lease::SerializeableTime(time::get_time());
-                true
-            }
-            // We don't have a lease for this client
-            None => false,
-        }
-    }
-
-    /// Update the allocation for `client` if it matches the provided `addr`.
-    /// This should be called on lease renewal or similar to ensure allocations aren't outdated
-    fn touch_allocation(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> bool {
-        match self.allocations.iter_mut().find(|alloc| alloc.client == *client) {
-            Some(a) => {
-                if !(a.assigned == *addr) {
-                    // We got an alloc, but the client tried to renew another address?
-                    return false;
-                }
-
-                a.last_seen = lease::SerializeableTime(time::get_time());
-                true
-            }
-            // We don't have a lease for this client
-            None => false,
-        }
-    }
-
-    /// Touch all relevant information about a client and make sure timestamps are updated
-    pub fn touch_client(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> bool {
-        self.touch_allocation(client, addr) && self.touch_lease(client, addr)
-    }
-
-    /// Get a lease for the `client` optionally try to get one specifically for the address
-    /// specified in `addr`.
-    /// This will first check the local store for an exiting lease, and if none is present it will
-    /// get an apropriate allocation and create a lease
-    pub fn get_lease_for(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
-        self.get_lease_mut(client, addr).map(|x| &*x)
-    }
-
     pub fn get_renewed_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
         let hook = self.lease_hook.clone();
         self.get_lease_mut(client, addr).map(|l| { Self::renew_lease(&hook, l); &*l })

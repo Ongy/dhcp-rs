@@ -92,10 +92,6 @@ impl AllocationUnit {
         self.allocator.get_allocation(client, addr)
     }
 
-    pub fn get_lease_for(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
-        self.allocator.get_lease_for(client, addr)
-    }
-
     pub fn get_renewed_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
         self.allocator.get_renewed_lease(client, addr)
     }
