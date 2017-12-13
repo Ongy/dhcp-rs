@@ -646,6 +646,14 @@ flag.get_value());
                 i += 1;
                 continue;
             }
+            match buffer.get(i + 1) {
+                None => {return Err(String::from("Couldn't read option length because buffer was too short"));},
+                Some(x) => {
+                    if buffer.len() - i - 2 < *x as usize {
+                        return Err(String::from("Option length was more than the buffer had left"));
+                    }
+                }
+            }
 
             let opt = DhcpOption::from_buffer(&buffer[i..])?;
             i += 2 + opt.get_size() as usize;
@@ -655,9 +663,13 @@ flag.get_value());
     }
 
     pub fn deserialize(buffer: &[u8]) -> Result<Self, String> {
-        if buffer.len() < 241 {
+        let cookie_pos = 236;
+        if buffer.len() < cookie_pos + 5 {
             return Err(String::from("Message to short to contain dhcp"));
         }
+        //TODO: Check for dhcp magic cookie
+
+
         let xid = NetworkEndian::read_u32(&buffer[4..]);
         let seconds = NetworkEndian::read_u16(&buffer[8..]);
         let flags = DhcpFlags::from_buffer(&buffer[10..])?;
@@ -668,7 +680,6 @@ flag.get_value());
         let gateway_addr = Self::get_ip(&buffer[24..]);
 
         let client_hwaddr = Hw::from_buffer(&buffer[28..]);
-        let cookie_pos = 236;
         let options = Self::get_options(&buffer[cookie_pos + 4..])?;
         let packet_type;
 
