@@ -45,7 +45,7 @@ impl AllocationUnit {
     pub fn new(conf: config::Pool, iface: &String) -> Self {
         let pool = conf.range.get_pool(iface);
         info!("Creating allocator for {} with pool {}", iface, pool.get_name());
-        let mut allocator = allocator::Allocator::new(pool, conf.allocate, conf.lease);
+        let mut allocator = allocator::Allocator::new(pool, conf.allocate, conf.deallocate, conf.lease);
         let mut opts = conf.options;
         Self::default_options(&mut opts, &allocator);
 

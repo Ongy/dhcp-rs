@@ -41,6 +41,7 @@ pub struct Pool {
     pub selector: Selector,
     pub range: IPPool,
     pub options: Vec<::packet::DhcpOption>,
+
     pub allocate: Option<String>,
     pub lease: Option<String>,
     pub deallocate: Option<String>,

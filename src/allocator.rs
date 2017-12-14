@@ -22,6 +22,7 @@ pub struct Allocator {
     leases: Vec<lease::Lease<EthernetAddr, Ipv4Addr>>,
     address_pool: pool::GPool<Ipv4Addr>,
 
+    deallocate_hook: Option<String>,
     allocate_hook: Option<String>,
     lease_hook: Option<String>
 }
@@ -64,6 +65,28 @@ impl Allocator {
         return ret;
     }
 
+    fn del_alloc(&self,
+                 alloc: lease::Allocation<EthernetAddr, Ipv4Addr>) {
+        if let Some(ref path) = self.deallocate_hook {
+            let client = alloc.client;
+            let hostname = client.hostname
+                            .as_ref()
+                            .map(|s| s.as_ref())
+                            .unwrap_or("");
+            let ip = format!("{}", &alloc.assigned);
+            let hwaddr = format!("{}", &client.hw_addr);
+            let cmd = std::process::Command::new(path)
+                        .arg(ip)
+                        .arg(hwaddr)
+                        .arg(hostname)
+                        .status();
+
+            if !(cmd.is_ok() && cmd.as_ref().unwrap().success()) {
+                warn!("Failed to execute allocation notify command: {:?}", cmd);
+            }
+        }
+    }
+
     fn renew_lease(lease_hook: &Option<String>,
                   lease: &mut lease::Lease<EthernetAddr, Ipv4Addr>) {
         match *lease_hook {
@@ -100,8 +123,8 @@ impl Allocator {
                 !lease.is_for_alloc(alloc))).collect();
     }
 
-    pub fn new(p: pool::GPool<Ipv4Addr>, allocate: Option<String>, lease: Option<String>) -> Allocator {
-        Allocator { address_pool: p, leases: Vec::new(), allocations: Vec::new(), allocate_hook: allocate, lease_hook: lease}
+    pub fn new(p: pool::GPool<Ipv4Addr>, allocate: Option<String>, deallocate: Option<String>, lease: Option<String>) -> Allocator {
+        Allocator { address_pool: p, leases: Vec::new(), allocations: Vec::new(), allocate_hook: allocate, lease_hook: lease, deallocate_hook: deallocate}
     }
 
     fn find_allocation(&self, client: &lease::Client<EthernetAddr>) -> Option<usize> {
@@ -130,6 +153,10 @@ impl Allocator {
 
     pub fn get_renewed_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
         let hook = self.lease_hook.clone();
+        if let Some(a) = self.get_allocation_mut(client, addr) {
+            a.last_seen = lease::SerializeableTime(time::get_time());
+        }
+
         self.get_lease_mut(client, addr).map(|l| { Self::renew_lease(&hook, l); &*l })
     }
 
@@ -217,22 +244,37 @@ impl Allocator {
         Ok(())
     }
 
-    fn next_ip(&mut self) -> Option<Ipv4Addr> {
-        let pooled = self.address_pool.next();
+    fn provide_ip(&mut self) -> Option<(Ipv4Addr, bool)> {
+        let pooled = self.address_pool.next().map(|i| (i, false));
         return pooled.or_else( || {
+
             let mut viable = self.get_viable_allocs();
             viable.sort_by_key(|alloc| alloc.last_seen);
 
             if let Some(alloc) = viable.get(0) {
-            // Remove the allocation, since we essentially just
-            // freed it, and it's no longer reserved
-                //self.allocations.
-
-                return Some(alloc.assigned);
+                return Some((alloc.assigned, true));
             }
 
             return None;
             });
+    }
+
+    fn next_ip(&mut self) -> Option<(Ipv4Addr)> {
+        if let Some((i, freed)) = self.provide_ip() {
+            if !freed {
+                return Some(i);
+            }
+
+            // Ok, we freed the old allocation. We should remove it
+            // This is actually guaranteed, so we can unwrap!
+            let index = self.allocations.iter().position(|alloc| alloc.assigned == i).unwrap();
+            let alloc = self.allocations.swap_remove(index);
+            self.del_alloc(alloc);
+
+            return Some(i);
+        }
+
+        None
     }
 
     pub fn get_name(&self) -> String {
