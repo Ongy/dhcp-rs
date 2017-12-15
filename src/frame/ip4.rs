@@ -1,11 +1,6 @@
 extern crate byteorder;
 extern crate pnet;
 
-#[cfg(test)]
-use quickcheck::Arbitrary;
-#[cfg(test)]
-use quickcheck::Gen;
-
 use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 use self::pnet::util::checksum;
 

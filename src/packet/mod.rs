@@ -1,6 +1,9 @@
 extern crate rs_config;
 extern crate byteorder;
 
+mod name;
+use self::name::DomainNames;
+
 use rs_config::ConfigAble;
 
 use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
@@ -215,6 +218,7 @@ pub enum DhcpOption {
     RenewalTime(u32),
     RebindingTime(u32),
     ClientIdentifier(Box<[u8]>),
+    DomainSearch(DomainNames),
     ClasslessRoutes(Box<[ClasslessRoute]>),
     Unknown(u8, Box<[u8]>),
 }
@@ -279,6 +283,7 @@ impl DhcpOption {
             DhcpOption::RenewalTime(_) => 58,
             DhcpOption::RebindingTime(_) => 59,
             DhcpOption::ClientIdentifier(_) => 60,
+            DhcpOption::DomainSearch(_) => 119,
             DhcpOption::ClasslessRoutes(_) => 121,
             DhcpOption::Unknown(x, _) => x,
         }
@@ -299,6 +304,7 @@ impl DhcpOption {
             DhcpOption::RenewalTime(_) => 4,
             DhcpOption::RebindingTime(_) => 4,
             DhcpOption::ClientIdentifier(ref val) => val.len() as u8,
+            DhcpOption::DomainSearch(ref val) => val.byte_len() as u8,
             DhcpOption::ClasslessRoutes(ref vec) => vec.iter().fold(0, |v, r| v + r.get_size()),
             DhcpOption::Unknown(_, ref b) => (*b).len() as u8,
         }
@@ -331,6 +337,7 @@ impl DhcpOption {
                 buffer.write_u32::<NetworkEndian>(t).unwrap(),
             DhcpOption::ClientIdentifier(ref ci) =>
                 buffer.extend(ci.iter()),
+            DhcpOption::DomainSearch(ref val) => val.serialize_onto(buffer),
             DhcpOption::ClasslessRoutes(ref routes) => {
                     for ref route in routes.iter() {
                         route.push_to(buffer);
@@ -454,6 +461,13 @@ impl DhcpOption {
         return Ok(DhcpOption::ClientIdentifier(data));
     }
 
+    fn domain_search_from_buffer(buffer: &[u8]) -> Result<Self, String> {
+        let len = buffer[1];
+        let used = &buffer[2..len as usize + 2];
+
+        return Ok(DhcpOption::DomainSearch(DomainNames::deserialize_from(used)?));
+    }
+
     fn classless_routes_from_buffer(buffer: &[u8]) -> Result<Self, String> {
         let len = buffer[1];
         let mut i = 0;
@@ -486,6 +500,7 @@ impl DhcpOption {
             58 => Self::renewal_from_buffer(buffer),
             59 => Self::rebinding_from_buffer(buffer),
             60 => Self::client_identifier_from_buffer(buffer),
+            119=> Self::domain_search_from_buffer(buffer),
             121=> Self::classless_routes_from_buffer(buffer),
             _  => Self::unknown_from_buffer(buffer),
         }
