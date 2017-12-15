@@ -252,6 +252,8 @@ impl Arbitrary for DhcpOption {
                 let vec2: Vec<u8> = vec.into_iter().take(255).collect();
                 DhcpOption::ClientIdentifier(vec2.into_boxed_slice())
             },
+            //TODO: Reenable when the long option parsing is in
+            //13 => DhcpOption::DomainSearch(/*Arbitrary::arbitrary(gen)*/vec![]),
             13 => {
                 let vec: Vec<ClasslessRoute> = Arbitrary::arbitrary(gen);
                 let vec2: Vec<ClasslessRoute> = vec.into_iter().take(28).collect();

@@ -1,7 +1,7 @@
 extern crate byteorder;
 extern crate rs_config;
 
-use rs_config::ConfigAble;
+use rs_config::{ConfigProvider, ConfigAble, ParseError};
 
 #[cfg(test)]
 use quickcheck::Arbitrary;
@@ -9,13 +9,23 @@ use quickcheck::Arbitrary;
 use quickcheck::Gen;
 
 use std;
+use std::str::FromStr;
 use std::fmt::Write;
 use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 use std::vec::Vec;
+
+use std::ffi::OsString;
+use std::os::unix::ffi::OsStringExt;
+
 use serialize::{HasCode, Serializeable};
 use ::pnet::datalink::MacAddr;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, ConfigAble)]
+extern {
+    fn ether_aton_r(asc: *const u8, addr: *mut EthernetAddr) -> *mut EthernetAddr;
+}
+
+#[repr(C)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct EthernetAddr (pub [u8;6]);
 
 impl std::fmt::Display for EthernetAddr {
@@ -29,6 +39,57 @@ impl std::fmt::Display for EthernetAddr {
 
         Ok(())
     }
+}
+
+impl FromStr for EthernetAddr {
+    type Err=String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let osstr = OsString::from(s);
+        let vec = osstr.into_vec();
+        if vec.len() > 18 {
+            return Err(format!("\"{}\" is too long to be parsed as valid EthernetAddr", s));
+        }
+        let mut ret = EthernetAddr([0; 6]);
+
+        unsafe {
+            if ether_aton_r(vec.as_ptr(), &mut ret as *mut EthernetAddr).is_null() {
+                return Err(format!("Could not parse \"{}\" as EthernetAddr", s));
+            }
+        }
+
+        Ok(ret)
+    }
+}
+
+impl ConfigAble for EthernetAddr {
+    fn get_format<F>(_: &mut std::collections::HashSet<String>, fun: &mut F)
+        where F: FnMut(&str) {
+        fun("EthernetAddr: xx:xx:xx:xx:xx:xx");
+    }
+
+    fn parse_from<F>(provider: &mut ConfigProvider, fun: &mut F) -> Result<Self, ParseError>
+        where F: FnMut(String) {
+        if let Some(txt) = provider.get_next() {
+            let used: String = txt.chars().take_while(|c| c.is_digit(16) || *c == ':').collect();
+            provider.consume(used.len(), fun)?;
+            return match EthernetAddr::from_str(used.as_str()) {
+                Ok(x) => Ok(x),
+                Err(e) => {
+                    fun(e);
+                    Err(ParseError::Recoverable)
+                },
+            }
+        }
+
+        fun(String::from("At end of file :("));
+        return Err(ParseError::Final);
+    }
+
+    fn get_name() -> &'static str { "EternetAddr" }
+
+    fn get_default() -> Result<Self, ()> { Err(()) }
+
 }
 
 impl<'a> From<&'a MacAddr> for EthernetAddr {

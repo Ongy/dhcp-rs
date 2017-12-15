@@ -241,8 +241,9 @@ impl Arbitrary for DomainName {
 #[cfg(test)]
 impl Arbitrary for DomainNames {
     fn arbitrary<G: Gen>(gen: &mut G) -> Self {
+        let t: Vec<DomainName> = Arbitrary::arbitrary(gen);
         DomainNames {
-            names: Arbitrary::arbitrary(gen)
+            names: t.into_boxed_slice()
         }
     }
 }
