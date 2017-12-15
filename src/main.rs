@@ -121,6 +121,12 @@ fn run_server(path: &str) {
 
 }
 
+fn verify_config(path: &str) {
+    let conf: config::Config = rs_config::read_or_exit(path);
+
+    println!("Conf: {:?}", conf);
+}
+
 
 fn main() {
     let matches = App::new("dhcpd")
@@ -133,9 +139,16 @@ fn main() {
                  .value_name("FILE")
                  .help("Path to config file to be used")
                  .takes_value(true))
+            .arg(Arg::with_name("verify")
+                 .long("verify")
+                 .help("Verify the config and exit"))
             .get_matches();
 
     let path = matches.value_of("config").unwrap_or("/etc/dhcp/dhcpd.conf");
 
-    run_server(path);
+    if matches.is_present("verify") {
+        verify_config(path);
+    } else {
+        run_server(path);
+    }
 }
