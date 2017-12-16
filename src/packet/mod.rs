@@ -86,6 +86,7 @@ impl PacketType {
         }
     }
 
+    #[cfg(test)]
     fn from_buffer(buffer: &[u8]) -> Result<Self, String> {
         if buffer[0] != 53 {
             return Err(format!("Encountered unexpected option type for dhcp packet type: {}", buffer[0]));
@@ -388,8 +389,11 @@ impl DhcpOption {
         return Ok(ret.into_boxed_slice());
     }
 
-    fn string_from_buffer(buffer: &[u8]) -> String {
-        String::from_utf8_lossy(buffer).into()
+    fn string_from_buffer(buffer: &[u8]) -> Result<String, String> {
+        match String::from_utf8(Vec::from(buffer)) {
+            Ok(s) => Ok(s),
+            Err(e) => Err(format!("Failed to decode string: {}", e)),
+        }
     }
 
     fn ipv4_from_buffer(buffer: &[u8]) -> Result<Ipv4Addr, String> {
@@ -435,13 +439,13 @@ impl DhcpOption {
             1  => Ok(DhcpOption::SubnetMask(Self::ipv4_from_buffer(buffer)?)),
             3  => Ok(DhcpOption::Router(Self::ipv4s_from_buffer(buffer)?)),
             6  => Ok(DhcpOption::DomainNameServer(Self::ipv4s_from_buffer(buffer)?)),
-            12 => Ok(DhcpOption::Hostname(Self::string_from_buffer(buffer))),
+            12 => Ok(DhcpOption::Hostname(Self::string_from_buffer(buffer)?)),
             28 => Ok(DhcpOption::BroadcastAddress(Self::ipv4_from_buffer(buffer)?)),
             50 => Ok(DhcpOption::AddressRequest(Self::ipv4_from_buffer(buffer)?)),
             51 => Ok(DhcpOption::LeaseTime(Self::u32_from_buffer(buffer)?)),
-            53 => Ok(DhcpOption::MessageType(PacketType::from_buffer(buffer)?)),
+            53 => Ok(DhcpOption::MessageType(PacketType::from_value(buffer[0])?)),
             54 => Ok(DhcpOption::ServerIdentifier(Self::ipv4_from_buffer(buffer)?)),
-            56 => Ok(DhcpOption::Message(Self::string_from_buffer(buffer))),
+            56 => Ok(DhcpOption::Message(Self::string_from_buffer(buffer)?)),
             58 => Ok(DhcpOption::RenewalTime(Self::u32_from_buffer(buffer)?)),
             59 => Ok(DhcpOption::RebindingTime(Self::u32_from_buffer(buffer)?)),
             60 => Ok(DhcpOption::ClientIdentifier(Self::bytes_from_buffer(buffer))),
@@ -487,7 +491,7 @@ impl DhcpFlags {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct DhcpPacket<Hw> {
     pub packet_type: PacketType,
     pub xid: u32,
@@ -501,6 +505,24 @@ pub struct DhcpPacket<Hw> {
     pub flags: Vec<DhcpFlags>,
 }
 
+impl<Hw: PartialEq> PartialEq for DhcpPacket<Hw> {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.packet_type == rhs.packet_type
+            && self.xid == rhs.xid
+            && self.seconds == rhs.seconds
+            && self.client_addr == rhs.client_addr
+            && self.your_addr == rhs.your_addr
+            && self.server_addr == rhs.server_addr
+            && self.gateway_addr == rhs.gateway_addr
+            && self.client_hwaddr == rhs.client_hwaddr
+            && self.flags == rhs.flags
+            // This isn't the most efficient, but the Eq instance should only ever be used for
+            // testing either way, so I really don't care much about it
+            && self.options.iter().all(|opt| rhs.options.contains(opt))
+            && rhs.options.iter().all(|opt| self.options.contains(opt))
+    }
+}
+
 #[cfg(test)]
 impl<Hw: Arbitrary> Arbitrary for DhcpPacket<Hw> {
     fn arbitrary<G: Gen>(gen: &mut G) -> Self {
@@ -512,6 +534,7 @@ impl<Hw: Arbitrary> Arbitrary for DhcpPacket<Hw> {
 
         let options: Vec<DhcpOption> = Arbitrary::arbitrary(gen);
         let mut opts: Vec<DhcpOption>= options.into_iter().filter(|opt| !opt.is_message_type()).collect();
+        opts.sort_unstable_by_key(|opt| opt.get_type());
         opts.dedup_by_key(|opt| opt.get_type());
 
         DhcpPacket {
@@ -711,23 +734,24 @@ mod tests {
             return Ok(packet) == de;
         }
 
-        fn serialize_classless(packet: ClasslessRoute) -> bool {
+        fn serialize_classless(route: ClasslessRoute) -> bool {
             let mut buffer = Vec::new();
-            packet.push_to(&mut buffer);
+            route.push_to(&mut buffer);
             let de = ClasslessRoute::from_buffer(buffer.as_slice());
-            return Ok(packet) == de;
+            return Ok(route) == de;
         }
 
-        fn serialize_dhcpoption(packet: DhcpOption) -> bool {
+        fn serialize_dhcpoption(opt: DhcpOption) -> bool {
             let mut buffer = Vec::new();
-            packet.push_to(&mut buffer);
-            let de = DhcpOption::from_buffer(buffer.as_slice());
-            return Ok(packet) == de;
+            opt.push_to(&mut buffer);
+            let de = DhcpOption::from_buffer(opt.get_type(), &(buffer.as_slice()[2..]));
+            return Ok(opt) == de;
         }
 
         fn serialize_packet(packet: DhcpPacket<EthernetAddr>) -> bool {
             let buffer = packet.serialize();
             let de = DhcpPacket::deserialize(buffer.as_slice());
+            println!("{:?}", de);
             return Ok(packet) == de;
         }
     }
