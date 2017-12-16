@@ -13,6 +13,7 @@ use std::iter;
 use std::option::Option;
 use std::result::Result;
 use std::vec::Vec;
+use std::collections::HashMap;
 
 use serialize::{Serializeable, HasCode};
 
@@ -158,7 +159,7 @@ pub struct ClasslessRoute {
 
 impl ClasslessRoute {
     fn get_size(&self) -> u8 {
-        let octets = Self::get_octets(self.prefix);
+        let octets = Self::get_octets(self.prefix) as u8;
         return 1 + octets + 4;
     }
 
@@ -170,23 +171,34 @@ impl ClasslessRoute {
     }
 
     fn from_buffer(buffer: &[u8]) -> Result<Self, String> {
+        if buffer.len() < 1 {
+            return Err(String::from("Got empty buffer for classless routes"));
+        }
         let len = buffer[0];
+
+        if len > 32 {
+            return Err(String::from("Got invalid length value for classless route"));
+        }
         let octets = Self::get_octets(len);
+        if buffer.len() < 1 + octets + 4 {
+            return Err(String::from("Classless route Network + router would be longer than the buffer"));
+        }
+
         let mut array = [0; 4];
-        array[0..octets as usize].copy_from_slice(&buffer[1..1 + octets as usize]);
+        array[0..octets].copy_from_slice(&buffer[1..1 + octets]);
         let net = Ipv4Addr::from(array);
-        let router = Ipv4Addr::from_buffer(&buffer[1 + octets as usize ..]);
+        let router = Ipv4Addr::from_buffer(&buffer[1 + octets..]);
 
         return Ok(ClasslessRoute {net: net, prefix: len, router: router});
     }
 
-    fn get_octets(bits: u8) -> u8 {
+    fn get_octets(bits: u8) -> usize {
         let len = bits / 8;
         if len % 8 != 0 {
-            return len + 1;
+            return len as usize + 1;
         }
 
-        return len;
+        return len as usize;
     }
 }
 
@@ -364,122 +376,40 @@ impl DhcpOption {
         self.push_value(buffer);
     }
 
-    fn subnetmask_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        if buffer[1] != 4 {
-            return Err("Subnetmask DHCP option size wasn't 4".into());
+    fn ipv4s_from_buffer(buffer: &[u8]) -> Result<Box<[Ipv4Addr]>, String> {
+        if buffer.len() % 4 != 0 {
+            return Err(String::from("Buffer size for vector of IPv4Addresses was not a multiple of 4"));
         }
-        let addr = Ipv4Addr::from_buffer(&buffer[2..]);
-        return Ok(DhcpOption::SubnetMask(addr));
-    }
-
-    fn router_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        if buffer[1] % 4 != 0 {
-            return Err("Router DHCP option size wasn't a multiple of 4".into());
-        }
-        let mut ret = Vec::with_capacity(buffer[1] as usize / 4);
-        for i in 0..(buffer[1] as usize / 4) {
-            let addr = Ipv4Addr::from_buffer(&buffer[2 + 4 * i..]);
+        let mut ret = Vec::with_capacity(buffer.len() / 4);
+        for i in 0..(buffer.len() as usize / 4) {
+            let addr = Ipv4Addr::from_buffer(&buffer[4 * i..]);
             ret.push(addr)
         }
-        return Ok(DhcpOption::Router(ret.into_boxed_slice()));
+        return Ok(ret.into_boxed_slice());
     }
 
-    fn dns_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        if buffer[1] % 4 != 0 {
-            return Err("Router DHCP option size wasn't a multiple of 4".into());
+    fn string_from_buffer(buffer: &[u8]) -> String {
+        String::from_utf8_lossy(buffer).into()
+    }
+
+    fn ipv4_from_buffer(buffer: &[u8]) -> Result<Ipv4Addr, String> {
+        if buffer.len() != 4 {
+            return Err(String::from("Buffer for single IPv4Address didn't have a size of 4"));
         }
-        let mut ret = Vec::with_capacity(buffer[1] as usize / 4);
-        for i in 0..(buffer[1] as usize / 4) {
-            let addr = Ipv4Addr::from_buffer(&buffer[2 + 4 * i..]);
-            ret.push(addr)
-        }
-        return Ok(DhcpOption::DomainNameServer(ret.into_boxed_slice()));
+
+        Ok(Ipv4Addr::from_buffer(buffer))
     }
 
-    fn hostname_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        let len = buffer[1] as usize;
-        let str = String::from_utf8_lossy(&buffer[2..len + 2]);
-        return Ok(DhcpOption::Hostname(str.into()));
-    }
-
-    fn broadcast_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        if buffer[1] != 4 {
+    fn u32_from_buffer(buffer: &[u8]) -> Result<u32, String> {
+        if buffer.len() != 4 {
             return Err("Subnetmask DHCP option size wasn't 4".into());
         }
-        let addr = Ipv4Addr::from_buffer(&buffer[2..]);
-        return Ok(DhcpOption::BroadcastAddress(addr));
-    }
 
-    fn address_request_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        if buffer[1] != 4 {
-            return Err("Subnetmask DHCP option size wasn't 4".into());
-        }
-        let addr = Ipv4Addr::from_buffer(&buffer[2..]);
-        return Ok(DhcpOption::AddressRequest(addr));
-    }
-
-    fn server_identifier_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        if buffer[1] != 4 {
-            return Err("Subnetmask DHCP option size wasn't 4".into());
-        }
-        let addr = Ipv4Addr::from_buffer(&buffer[2..]);
-        return Ok(DhcpOption::ServerIdentifier(addr));
-    }
-
-    fn message_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        let len = buffer[1] as usize;
-        let str = String::from_utf8_lossy(&buffer[2..len + 2]);
-        return Ok(DhcpOption::Message(str.into()));
-    }
-
-    fn leasetime_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        if buffer[1] != 4 {
-            return Err("Subnetmask DHCP option size wasn't 4".into());
-        }
-        let val = NetworkEndian::read_u32(&buffer[2..]);
-        return Ok(DhcpOption::LeaseTime(val));
-    }
-
-    fn renewal_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        if buffer[1] != 4 {
-            return Err("Subnetmask DHCP option size wasn't 4".into());
-        }
-        let val = NetworkEndian::read_u32(&buffer[2..]);
-        return Ok(DhcpOption::RenewalTime(val));
-    }
-
-    fn rebinding_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        if buffer[1] != 4 {
-            return Err("Subnetmask DHCP option size wasn't 4".into());
-        }
-        let val = NetworkEndian::read_u32(&buffer[2..]);
-        return Ok(DhcpOption::RebindingTime(val));
-    }
-
-    fn unknown_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        let t = buffer[0];
-        let len = buffer[1];
-        let tmp: Vec<u8> = buffer[2..len as usize + 2].iter().map(|x| *x).collect();
-        let data = tmp.into_boxed_slice();
-        return Ok(DhcpOption::Unknown(t, data));
-    }
-
-    fn client_identifier_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        let len = buffer[1];
-        let tmp: Vec<u8> = buffer[2..len as usize + 2].iter().map(|x| *x).collect();
-        let data = tmp.into_boxed_slice();
-        return Ok(DhcpOption::ClientIdentifier(data));
-    }
-
-    fn domain_search_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        let len = buffer[1];
-        let used = &buffer[2..len as usize + 2];
-
-        return Ok(DhcpOption::DomainSearch(DomainNames::deserialize_from(used)?));
+        Ok(NetworkEndian::read_u32(buffer))
     }
 
     fn classless_routes_from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        let len = buffer[1];
+        let len = buffer.len();
         let mut i = 0;
         let mut ret = Vec::new();
 
@@ -487,7 +417,7 @@ impl DhcpOption {
             if i == len as usize {
                 break;
             }
-            let route = ClasslessRoute::from_buffer(&buffer[2 + i..])?;
+            let route = ClasslessRoute::from_buffer(&buffer[i..])?;
             i = i + route.get_size() as usize;
             ret.push(route);
         }
@@ -495,24 +425,29 @@ impl DhcpOption {
         return Ok(DhcpOption::ClasslessRoutes(ret.into_boxed_slice()));
     }
 
-    fn from_buffer(buffer: &[u8]) -> Result<Self, String> {
-        match buffer[0] {
-            1  => Self::subnetmask_from_buffer(buffer),
-            3  => Self::router_from_buffer(buffer),
-            6  => Self::dns_from_buffer(buffer),
-            12 => Self::hostname_from_buffer(buffer),
-            28 => Self::broadcast_from_buffer(buffer),
-            50 => Self::address_request_from_buffer(buffer),
-            51 => Self::leasetime_from_buffer(buffer),
+    fn bytes_from_buffer(buffer: &[u8]) -> Box<[u8]> {
+        Vec::from(buffer).into_boxed_slice()
+    }
+
+
+    fn from_buffer(variant: u8, buffer: &[u8]) -> Result<Self, String> {
+        match variant {
+            1  => Ok(DhcpOption::SubnetMask(Self::ipv4_from_buffer(buffer)?)),
+            3  => Ok(DhcpOption::Router(Self::ipv4s_from_buffer(buffer)?)),
+            6  => Ok(DhcpOption::DomainNameServer(Self::ipv4s_from_buffer(buffer)?)),
+            12 => Ok(DhcpOption::Hostname(Self::string_from_buffer(buffer))),
+            28 => Ok(DhcpOption::BroadcastAddress(Self::ipv4_from_buffer(buffer)?)),
+            50 => Ok(DhcpOption::AddressRequest(Self::ipv4_from_buffer(buffer)?)),
+            51 => Ok(DhcpOption::LeaseTime(Self::u32_from_buffer(buffer)?)),
             53 => Ok(DhcpOption::MessageType(PacketType::from_buffer(buffer)?)),
-            54 => Self::server_identifier_from_buffer(buffer),
-            56 => Self::message_from_buffer(buffer),
-            58 => Self::renewal_from_buffer(buffer),
-            59 => Self::rebinding_from_buffer(buffer),
-            60 => Self::client_identifier_from_buffer(buffer),
-            119=> Self::domain_search_from_buffer(buffer),
+            54 => Ok(DhcpOption::ServerIdentifier(Self::ipv4_from_buffer(buffer)?)),
+            56 => Ok(DhcpOption::Message(Self::string_from_buffer(buffer))),
+            58 => Ok(DhcpOption::RenewalTime(Self::u32_from_buffer(buffer)?)),
+            59 => Ok(DhcpOption::RebindingTime(Self::u32_from_buffer(buffer)?)),
+            60 => Ok(DhcpOption::ClientIdentifier(Self::bytes_from_buffer(buffer))),
+            119=> Ok(DhcpOption::DomainSearch(DomainNames::deserialize_from(buffer)?)),
             121=> Self::classless_routes_from_buffer(buffer),
-            _  => Self::unknown_from_buffer(buffer),
+            _  => Ok(DhcpOption::Unknown(variant, Self::bytes_from_buffer(buffer))),
         }
     }
 
@@ -661,29 +596,45 @@ flag.get_value());
     }
 
     fn get_options(buffer: &[u8]) -> Result<Vec<DhcpOption>, String> {
-        let mut ret = Vec::new();
+        let mut map = HashMap::new();
         let mut i = 0;
         loop {
-            if buffer[i] == 255 {
+            let opt = match buffer.get(i) {
+                    Some(x) => *x,
+                    None => {return Err(String::from("Buffer ended before without end option"));},
+                };
+            // This is the end mark!
+            if opt == 255 {
                 break;
             }
-            if buffer[i] == 0 {
+            // This is the 0 option, just advance over it
+            if opt == 0 {
                 i += 1;
                 continue;
             }
-            match buffer.get(i + 1) {
-                None => {return Err(String::from("Couldn't read option length because buffer was too short"));},
-                Some(x) => {
-                    if buffer.len() - i - 2 < *x as usize {
-                        return Err(String::from("Option length was more than the buffer had left"));
-                    }
-                }
+
+            // This is where it get's interesting :)
+            let len = match buffer.get(i + 1) {
+                    None => {return Err(String::from("Couldn't read option length because buffer was too short"));},
+                    Some(x) => *x as usize,
+                };
+
+            if buffer.len() < len + 2 + i {
+                return Err(String::from("Option length is larger than buffer left to parse"));
             }
 
-            let opt = DhcpOption::from_buffer(&buffer[i..])?;
-            i += 2 + opt.get_size() as usize;
+            let current = &buffer[i + 2..i + 2 + len];
+            map.entry(opt).or_insert(Vec::new()).extend_from_slice(current);
+            i += len + 2;
+
+        }
+
+        let mut ret = Vec::with_capacity(map.len());
+        for (opt, buf) in map {
+            let opt = DhcpOption::from_buffer(opt, buf.as_slice())?;
             ret.push(opt);
         }
+
         return Ok(ret);
     }
 
