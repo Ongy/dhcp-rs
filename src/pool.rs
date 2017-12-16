@@ -122,9 +122,9 @@ impl<P: Poolable> GPool<P> {
         return self.ranges.iter().any(|range| range.lower <= val && range.upper >= val);
     }
 
-//    pub fn is_used(&self, ip: u32) -> bool {
-//        return self.used.contains(&ip);
-//    }
+    pub fn is_used(&self, ip: &P) -> bool {
+        return self.used.contains(&ip.into_internal());
+    }
 
     pub fn get_lowest(&self) -> P {
         P::from_internal(self.ranges.iter().map(|r| &r.lower).min().unwrap())

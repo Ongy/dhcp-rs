@@ -14,7 +14,7 @@ use std::option::Option;
 use std::result::Result;
 use std::vec::Vec;
 
-use serialize::Serializeable;
+use serialize::{Serializeable, HasCode};
 
 #[cfg(test)]
 use quickcheck::Arbitrary;
@@ -23,6 +23,14 @@ use quickcheck::Gen;
 
 use frame::ethernet::EthernetAddr;
 use std::net::Ipv4Addr;
+
+#[derive(Debug, Clone)]
+pub struct DhcpServer;
+
+impl HasCode for DhcpServer {
+    type CodeType = u16;
+    fn get_code() -> Self::CodeType { 67 }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ConfigAble)]
 pub enum PacketType {

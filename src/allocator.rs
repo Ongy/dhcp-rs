@@ -128,7 +128,11 @@ impl Allocator {
     }
 
     fn find_allocation(&self, client: &lease::Client<EthernetAddr>) -> Option<usize> {
-        self.allocations.iter().enumerate().find(|alloc| &alloc.1.client == client).map(|(i, _)| i)
+        self.allocations
+            .iter().position(|alloc| alloc.client == *client)
+            .or_else(|| self.allocations.iter().position(|alloc| client.client_identifier.is_some() && alloc.client.client_identifier == client.client_identifier))
+            .or_else(|| self.allocations.iter().position(|alloc| alloc.client.hw_addr == client.hw_addr))
+            .or_else(|| self.allocations.iter().position(|alloc| client.hostname.is_some() && alloc.client.hostname == client.hostname))
     }
 
     // We *may* be out of allocatable addresses
@@ -148,7 +152,11 @@ impl Allocator {
     /// This is a bit silly, but required because we can't return a reference to it, without
     /// borrowing self, so this works around it
     fn find_lease(&self, client: &lease::Client<EthernetAddr>) -> Option<usize> {
-        self.leases.iter().enumerate().find(|lease| &lease.1.client == client).map(|(i, _)| i)
+        self.leases
+            .iter().position(|alloc| alloc.client == *client)
+            .or_else(|| self.leases.iter().position(|lease| client.client_identifier.is_some() && lease.client.client_identifier == client.client_identifier))
+            .or_else(|| self.leases.iter().position(|lease| lease.client.hw_addr == client.hw_addr))
+            .or_else(|| self.leases.iter().position(|lease| client.hostname.is_some() && lease.client.hostname == client.hostname))
     }
 
     pub fn get_renewed_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
@@ -162,10 +170,9 @@ impl Allocator {
 
     fn get_lease_mut(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&mut lease::Lease<EthernetAddr, Ipv4Addr>> {
         self.find_lease(client).or_else(||{
-            self.get_allocation_mut(client, addr).map(|alloc|{
-                alloc.last_seen = lease::SerializeableTime(time::get_time());
-                lease::Lease::for_alloc(alloc, 7200)
-            }).map(|l| {
+            self.get_allocation_mut(client, addr)
+                .map(|alloc| lease::Lease::for_alloc(alloc, 7200))
+                .map(|l| {
                 info!("Created lease for {:?}: {:?}", client, &l);
                 self.leases.push(l);
                 self.leases.len() - 1
@@ -175,17 +182,21 @@ impl Allocator {
 
     fn get_requested(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> Option<&mut lease::Allocation<EthernetAddr, Ipv4Addr>> {
         trace!("Getting requested allocation");
-        let found = self.allocations.iter().enumerate().find(|alloc| &alloc.1.assigned == addr).map(|(i, _)| i);
+        let found = self.allocations
+            .iter()
+            .position(|alloc| alloc.assigned == *addr
+                          && client.overlapping(&alloc.client));
 
         found.or_else(|| {
-            if self.address_pool.is_suitable(*addr) {
+            if self.address_pool.is_suitable(*addr)
+                    && !self.address_pool.is_used(addr) {
                 info!("Creating requested allocation for {:?} on ip {}", client, addr);
                 self.address_pool.set_used(*addr);
                 let alloc = self.make_alloc(*addr, client.clone());
                 self.allocations.push(alloc);
                 Some(self.allocations.len() - 1)
             } else {
-                info!("Allocator isn't suitable for requested IP");
+                info!("Allocator isn't suitable for requested IP or requested IP is taken");
                 None
             }
         }).and_then(move |i| self.allocations.get_mut(i))

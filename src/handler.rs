@@ -3,6 +3,7 @@ use pnet;
 use serialize;
 use config;
 
+use std::marker::PhantomData;
 use interface::Interface;
 use std::ops::Deref;
 
@@ -38,7 +39,7 @@ fn alloc_for_client<'a>(aus: &'a mut Box<[allocationunit::AllocationUnit]>,
 }
 
 fn decode_dhcp(rec: &[u8]) -> Result<packet::DhcpPacket<EthernetAddr>, String> {
-    let tmp = serialize::deserialize::<Ethernet<IPv4Packet<UDP<packet::DhcpPacket<EthernetAddr>>>>>(rec)?;
+    let tmp = serialize::deserialize::<Ethernet<IPv4Packet<UDP<packet::DhcpPacket<EthernetAddr>, packet::DhcpServer>>>>(rec)?;
     return Ok(tmp.payload.payload.payload);
 }
 
@@ -214,7 +215,7 @@ fn handle_packet(
     let target_mac = packet.client_hwaddr.clone();
     if let Some((answer, s_ip)) = get_answer(iface, packet) {
 
-        let udp = UDP { src: 67, dst: 68, payload: answer};
+        let udp: UDP<packet::DhcpPacket<EthernetAddr>, packet::DhcpServer>  = UDP {remote: 68, payload: answer, local: PhantomData};
         let ip = IPv4Packet { src: s_ip, dst:Ipv4Addr::new(255, 255, 255, 255), ttl: 64, payload: udp};
         let ethernet = Ethernet{src: EthernetAddr::from(&iface.my_mac), dst: target_mac, payload: ip};
 

@@ -4,21 +4,22 @@ extern crate pnet;
 use self::byteorder::{WriteBytesExt, NetworkEndian, ByteOrder};
 //TODO: use self::pnet::util::checksum;
 
+use std::marker::PhantomData;
 use std::vec::Vec;
 use serialize::{Serializeable, HasCode};
 
 
 #[derive(Debug)]
-pub struct UDP<P> {
-	pub src: u16,
-	pub dst: u16,
+pub struct UDP<P, S> {
+	pub remote: u16,
 	pub payload: P,
+    pub local: PhantomData<S>,
 }
 
-impl<P: Serializeable> Serializeable for UDP<P> {
+impl<P: Serializeable, S: HasCode<CodeType=u16>> Serializeable for UDP<P, S> {
 	fn serialize_onto(&self, buffer: &mut Vec<u8>) {
-		buffer.write_u16::<NetworkEndian>(self.src).unwrap();
-		buffer.write_u16::<NetworkEndian>(self.dst).unwrap();
+		buffer.write_u16::<NetworkEndian>(S::get_code()).unwrap();
+		buffer.write_u16::<NetworkEndian>(self.remote).unwrap();
 		let len_pos = buffer.len();
 		buffer.write_u16::<NetworkEndian>(0).unwrap();
 		buffer.write_u16::<NetworkEndian>(0).unwrap();
@@ -34,8 +35,11 @@ impl<P: Serializeable> Serializeable for UDP<P> {
 		if buffer.len() < 8 {
 			return Err("Buffer is too small. Minimum buffer length to decode udp is 8 bytes.".into());
 		}
-		let src = NetworkEndian::read_u16(&buffer[0..]);
 		let dst = NetworkEndian::read_u16(&buffer[2..]);
+        if dst != S::get_code() {
+            return Err("This packet wasn't sent to our server port".into());
+        }
+		let src = NetworkEndian::read_u16(&buffer[0..]);
 		let len = NetworkEndian::read_u16(&buffer[4..]);
 
 		if buffer.len() < len as usize {
@@ -44,11 +48,11 @@ impl<P: Serializeable> Serializeable for UDP<P> {
 
 		let payload = P::deserialize_from(&buffer[8..len as usize])?;
 
-		return Ok(Self{src: src, dst: dst, payload: payload});
+		return Ok(Self{remote: src, payload: payload, local: PhantomData});
 	}
 }
 
-impl<P> HasCode for UDP<P> {
+impl<P, S> HasCode for UDP<P, S> {
     type CodeType=u8;
 
     fn get_code() -> u8 { 17 }

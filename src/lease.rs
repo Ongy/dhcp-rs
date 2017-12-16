@@ -16,6 +16,16 @@ pub struct Client<H> {
     pub hostname: Option<String>
 }
 
+impl<H: PartialEq> Client<H> {
+    pub fn overlapping(&self, rhs: &Self) -> bool {
+        self.hw_addr == rhs.hw_addr
+            || (self.client_identifier.is_some()
+                && self.client_identifier == rhs.client_identifier)
+            || (self.hostname.is_some()
+                && self.hostname == rhs.hostname)
+    }
+}
+
 impl Deref for SerializeableTime {
     type Target = time::Timespec;
     fn deref(&self) -> &time::Timespec { &self.0 }
