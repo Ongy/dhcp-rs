@@ -3,6 +3,7 @@ extern crate byteorder;
 use std;
 use std::fmt;
 use std::boxed::Box;
+#[allow(unused_imports)]
 use std::ascii::AsciiExt;
 
 use self::byteorder::{BigEndian, ByteOrder};
@@ -82,7 +83,7 @@ impl ConfigAble for DomainName {
             }
 
             let tmp: Vec<Box<[u8]>> = labels.iter().map(|l| {
-                    let t: Vec<u8> = l.as_bytes().iter().map(|b| *b).collect();
+                    let t: Vec<u8> = l.as_bytes().to_vec();
                     t.into_boxed_slice()
                 }).collect();
 
@@ -121,7 +122,7 @@ impl DomainName {
 
     fn from_name(name: &mut Name) -> Self {
         let v: Vec<Box<[u8]>> = name.map(|l| {
-            let lv: Vec<u8> = l.iter().map(|b| *b).collect();
+            let lv: Vec<u8> = l.to_vec();
             lv.into_boxed_slice()
         }).collect();
 
@@ -215,7 +216,7 @@ impl<'a> Iterator for Name<'a> {
         let ret = &self.labels[self.current + 1 .. self.current + 1 + size];
         self.current = self.current + size + 1;
 
-        return Some(ret);
+        Some(ret)
     }
 }
 

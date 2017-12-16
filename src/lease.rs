@@ -34,7 +34,7 @@ impl Deref for SerializeableTime {
 impl serde::Serialize for SerializeableTime {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer {
-        return ((self.0).sec, (self.0).nsec).serialize(serializer);
+        ((self.0).sec, (self.0).nsec).serialize(serializer)
     }
 }
 
@@ -43,7 +43,7 @@ impl<'a> serde::Deserialize<'a> for SerializeableTime {
         where D: serde::Deserializer<'a> {
         let (sec, nsec) = serde::Deserialize::deserialize(deserializer)?;
         let tspec = time::Timespec {sec: sec, nsec: nsec};
-        return Ok(SerializeableTime(tspec));
+        Ok(SerializeableTime(tspec))
     }
 }
 
@@ -72,7 +72,7 @@ impl<H, I> Lease<H, I>
     pub fn is_for_alloc(&self, alloc: &Allocation<H, I>) -> bool {
         let client = self.client == alloc.client;
         let addr = self.assigned == alloc.assigned;
-        return client && addr;
+        client && addr
     }
 }
 
@@ -80,32 +80,32 @@ impl<H, I> Lease<H, I>
     where H: Clone,
           I: Clone {
     pub fn for_alloc(alloc: &Allocation<H, I>, duration: u32) -> Lease<H, I> {
-        return Lease {
+        Lease {
             assigned: alloc.assigned.clone(),
             client: alloc.client.clone(),
             lease_duration: duration,
             lease_start: SerializeableTime(time::get_time())
-            };
+            }
     }
 }
 
 impl<H, I> Lease<H, I> {
     pub fn is_active(&self) -> bool {
         let passed = time::get_time() - self.lease_start.0;
-        passed < time::Duration::seconds(self.lease_duration as i64)
+        passed < time::Duration::seconds(i64::from(self.lease_duration))
     }
 }
 
 pub fn get_client<H>(pack: &packet::DhcpPacket<H>) -> Client<H>
     where H: Clone + std::fmt::Debug {
     let hostname = pack.options.iter().filter_map(|opt|
-        match opt {
-            &packet::DhcpOption::Hostname(ref name) => Some(name.clone()),
+        match *opt {
+            packet::DhcpOption::Hostname(ref name) => Some(name.clone()),
             _ => None
         }).next();
     let ci = pack.options.iter().filter_map(|opt|
-        match opt {
-            &packet::DhcpOption::ClientIdentifier(ref c) => Some(c.clone()),
+        match *opt {
+            packet::DhcpOption::ClientIdentifier(ref c) => Some(c.clone()),
             _ => None
         }).next();
 
@@ -117,5 +117,5 @@ pub fn get_client<H>(pack: &packet::DhcpPacket<H>) -> Client<H>
 
     debug!("Created client: {:?}", &ret);
 
-    return ret;
+    ret
 }

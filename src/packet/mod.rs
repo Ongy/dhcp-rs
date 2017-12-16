@@ -54,7 +54,8 @@ impl Arbitrary for PacketType {
 
 impl PacketType {
     fn push_value(&self, buffer: &mut Vec<u8>) {
-        buffer.push(match *self {
+        #![allow(unknown_lints,match_same_arms)]
+        let val = match *self {
             PacketType::Discover => 0x1,
             PacketType::Offer => 0x2,
             PacketType::Request => 0x3,
@@ -63,7 +64,8 @@ impl PacketType {
             PacketType::Nack => 0x6,
             PacketType::Release => 0x7,
             PacketType::Inform => 0x8,
-        });
+        };
+        buffer.push(val);
     }
 
     fn push_to(&self, buffer: &mut Vec<u8>) {
@@ -101,14 +103,12 @@ impl PacketType {
 
     fn get_op(&self) -> u8 {
         match *self {
+        #![allow(unknown_lints,match_same_arms)]
             PacketType::Discover => 0x1,
             PacketType::Offer => 0x2,
-            PacketType::Request => 0x1,
-            PacketType::Decline => 0x1,
-            PacketType::Ack => 0x2,
-            PacketType::Nack => 0x2,
-            PacketType::Release => 0x1,
-            PacketType::Inform => 0x1,
+            PacketType::Request | PacketType::Decline => 0x1,
+            PacketType::Ack | PacketType::Nack => 0x2,
+            PacketType::Release | PacketType::Inform => 0x1,
         }
     }
 }
@@ -132,7 +132,7 @@ impl HwAddr for EthernetAddr {
     fn from_buffer(buffer: & [u8]) -> Self {
         let mut array = [0; 6];
         array.copy_from_slice(&buffer[..6]);
-        return EthernetAddr(array);
+        EthernetAddr(array)
     }
 }
 
@@ -147,7 +147,7 @@ impl HwAddr for Ipv4Addr {
     fn from_buffer(buffer: &[u8]) -> Self {
         let mut array = [0; 4];
         array.copy_from_slice(&buffer[..4]);
-        return Ipv4Addr::from(array);
+        Ipv4Addr::from(array)
     }
 }
 
@@ -161,7 +161,7 @@ pub struct ClasslessRoute {
 impl ClasslessRoute {
     fn get_size(&self) -> u8 {
         let octets = Self::get_octets(self.prefix) as u8;
-        return 1 + octets + 4;
+        1 + octets + 4
     }
 
     fn push_to(&self, buffer: &mut Vec<u8>) {
@@ -190,7 +190,7 @@ impl ClasslessRoute {
         let net = Ipv4Addr::from(array);
         let router = Ipv4Addr::from_buffer(&buffer[1 + octets..]);
 
-        return Ok(ClasslessRoute {net: net, prefix: len, router: router});
+        Ok(ClasslessRoute {net: net, prefix: len, router: router})
     }
 
     fn get_octets(bits: u8) -> usize {
@@ -199,7 +199,7 @@ impl ClasslessRoute {
             return len as usize + 1;
         }
 
-        return len as usize;
+        len as usize
     }
 }
 
@@ -316,20 +316,16 @@ impl DhcpOption {
     }
 
     fn get_size(&self) -> u8 {
+        #![allow(unknown_lints,match_same_arms)]
         match *self {
             DhcpOption::SubnetMask(_) => 4,
-            DhcpOption::Router(ref vec) => 4 * vec.len() as u8,
-            DhcpOption::DomainNameServer(ref vec) => 4 * vec.len() as u8,
-            DhcpOption::Hostname(ref str) => str.as_bytes().len() as u8,
-            DhcpOption::DomainName(ref str) => str.as_bytes().len() as u8,
-            DhcpOption::BroadcastAddress(_) => 4,
-            DhcpOption::LeaseTime(_) => 4,
-            DhcpOption::AddressRequest(_) => 4,
+            DhcpOption::Router(ref vec) | DhcpOption::DomainNameServer(ref vec) => 4 * vec.len() as u8,
+            DhcpOption::Hostname(ref str) | DhcpOption::DomainName(ref str) => str.as_bytes().len() as u8,
+            DhcpOption::BroadcastAddress(_) | DhcpOption::LeaseTime(_) | DhcpOption::AddressRequest(_) => 4,
             DhcpOption::MessageType(_) => 1,
             DhcpOption::ServerIdentifier(_) => 4,
             DhcpOption::Message(ref str) => str.as_bytes().len() as u8,
-            DhcpOption::RenewalTime(_) => 4,
-            DhcpOption::RebindingTime(_) => 4,
+            DhcpOption::RenewalTime(_) | DhcpOption::RebindingTime(_) => 4,
             DhcpOption::ClientIdentifier(ref val) => val.len() as u8,
             DhcpOption::DomainSearch(ref val) => val.byte_len() as u8,
             DhcpOption::ClasslessRoutes(ref vec) => vec.iter().fold(0, |v, r| v + r.get_size()),
@@ -338,20 +334,15 @@ impl DhcpOption {
     }
 
     fn push_value(&self, buffer: &mut Vec<u8>) {
+        #![allow(unknown_lints,match_same_arms)]
         match *self {
             DhcpOption::SubnetMask(ref mask) => mask.push_to(buffer),
-            DhcpOption::Router(ref vec) => {
-                for ref router in vec.iter() {
+            DhcpOption::Router(ref vec) | DhcpOption::DomainNameServer(ref vec) => {
+                for router in vec.iter() {
                     router.push_to(buffer);
                 }
             }
-            DhcpOption::DomainNameServer(ref vec) => {
-                for ref router in vec.iter() {
-                    router.push_to(buffer);
-                }
-            }
-            DhcpOption::Hostname(ref str) => buffer.extend(str.as_bytes().iter()),
-            DhcpOption::DomainName(ref str) => buffer.extend(str.as_bytes().iter()),
+            DhcpOption::Hostname(ref str) | DhcpOption::DomainName(ref str) => buffer.extend(str.as_bytes().iter()),
             DhcpOption::BroadcastAddress(ref ip) => ip.push_to(buffer),
             DhcpOption::LeaseTime(l) =>
                 buffer.write_u32::<NetworkEndian>(l).unwrap(),
@@ -367,7 +358,7 @@ impl DhcpOption {
                 buffer.extend(ci.iter()),
             DhcpOption::DomainSearch(ref val) => val.serialize_onto(buffer),
             DhcpOption::ClasslessRoutes(ref routes) => {
-                    for ref route in routes.iter() {
+                    for route in routes.iter() {
                         route.push_to(buffer);
                     }
                 },
@@ -391,7 +382,7 @@ impl DhcpOption {
             let addr = Ipv4Addr::from_buffer(&buffer[4 * i..]);
             ret.push(addr)
         }
-        return Ok(ret.into_boxed_slice());
+        Ok(ret.into_boxed_slice())
     }
 
     fn string_from_buffer(buffer: &[u8]) -> Result<String, String> {
@@ -427,11 +418,11 @@ impl DhcpOption {
                 break;
             }
             let route = ClasslessRoute::from_buffer(&buffer[i..])?;
-            i = i + route.get_size() as usize;
+            i += route.get_size() as usize;
             ret.push(route);
         }
 
-        return Ok(DhcpOption::ClasslessRoutes(ret.into_boxed_slice()));
+        Ok(DhcpOption::ClasslessRoutes(ret.into_boxed_slice()))
     }
 
     fn bytes_from_buffer(buffer: &[u8]) -> Box<[u8]> {
@@ -462,8 +453,8 @@ impl DhcpOption {
     }
 
     fn is_message_type(&self) -> bool {
-        match self {
-            &DhcpOption::MessageType(_) => true,
+        match *self {
+            DhcpOption::MessageType(_) => true,
             _ => false,
         }
     }
@@ -483,8 +474,8 @@ impl Arbitrary for DhcpFlags {
 
 impl DhcpFlags {
     fn get_value(&self) -> u16{
-        match self {
-            &DhcpFlags::Broadcast => 0x8000,
+        match *self {
+            DhcpFlags::Broadcast => 0x8000,
         }
     }
 
@@ -566,9 +557,9 @@ flag.get_value());
     }
 
     fn push_ip(ip: &Option<Ipv4Addr>, buffer: &mut Vec<u8>) {
-        match ip {
-            &None => buffer.extend([0, 0, 0, 0,].iter()),
-            &Some(ref x) => x.push_to(buffer)
+        match *ip {
+            None => buffer.extend([0, 0, 0, 0,].iter()),
+            Some(ref x) => x.push_to(buffer)
         }
     }
 
@@ -597,11 +588,11 @@ flag.get_value());
         buffer.extend(iter::repeat(0).take(192));
 
         /* Magic cookie */
-        buffer.write_u32::<NetworkEndian>(0x63825363).unwrap();
+        buffer.write_u32::<NetworkEndian>(0x63_82_53_63).unwrap();
 
         self.packet_type.push_to(buffer);
 
-        for ref option in self.options.iter() {
+        for option in &self.options {
             option.push_to(buffer);
         }
 
@@ -618,9 +609,9 @@ flag.get_value());
     fn get_ip(buffer: &[u8]) -> Option<Ipv4Addr> {
         let ip = Ipv4Addr::from_buffer(buffer);
         if ip == Ipv4Addr::new(0, 0, 0, 0) {
-            return None;
+            None
         } else {
-            return Some(ip);
+            Some(ip)
         }
     }
 
@@ -653,7 +644,7 @@ flag.get_value());
             }
 
             let current = &buffer[i + 2..i + 2 + len];
-            map.entry(opt).or_insert(Vec::new()).extend_from_slice(current);
+            map.entry(opt).or_insert_with(Vec::new).extend_from_slice(current);
             i += len + 2;
 
         }
@@ -664,7 +655,7 @@ flag.get_value());
             ret.push(opt);
         }
 
-        return Ok(ret);
+        Ok(ret)
     }
 
     pub fn deserialize(buffer: &[u8]) -> Result<Self, String> {
@@ -697,7 +688,7 @@ flag.get_value());
                 }?;
         }
 
-        return Ok(DhcpPacket{
+        Ok(DhcpPacket{
             packet_type: packet_type,
             xid: xid,
             seconds: seconds,
@@ -708,7 +699,7 @@ flag.get_value());
             client_hwaddr: client_hwaddr,
             flags: flags,
             options: options.into_iter().filter(|opt| !opt.is_message_type()).collect(),
-            });
+            })
     }
 }
 
@@ -719,7 +710,7 @@ impl<Hw: HwAddr> Serializeable for DhcpPacket<Hw> {
     }
 
     fn deserialize_from(buffer: &[u8]) -> Result<Self, String> {
-        return Self::deserialize(buffer);
+        Self::deserialize(buffer)
     }
 }
 

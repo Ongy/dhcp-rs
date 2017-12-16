@@ -29,10 +29,10 @@ fn get_server_ip<'a, I>(arg: I, client: Ipv4Addr, mask: Ipv4Addr) -> Option<&'a 
         }
     }
 
-    return None;
+    None
 }
 
-fn alloc_for_client<'a>(aus: &'a mut Box<[allocationunit::AllocationUnit]>,
+fn alloc_for_client<'a>(aus: &'a mut [allocationunit::AllocationUnit],
                         client: &lease::Client<::frame::ethernet::EthernetAddr>)
                         -> Option<&'a mut allocationunit::AllocationUnit> {
     aus.iter_mut().find(|alloc| alloc.is_suitable(client))
@@ -40,21 +40,22 @@ fn alloc_for_client<'a>(aus: &'a mut Box<[allocationunit::AllocationUnit]>,
 
 fn decode_dhcp(rec: &[u8]) -> Result<packet::DhcpPacket<EthernetAddr>, String> {
     let tmp = serialize::deserialize::<Ethernet<IPv4Packet<UDP<packet::DhcpPacket<EthernetAddr>, packet::DhcpServer>>>>(rec)?;
-    return Ok(tmp.payload.payload.payload);
+    Ok(tmp.payload.payload.payload)
 }
 
+#[allow(unknown_lints,needless_pass_by_value)]
 fn get_ack(iface: &mut Interface, request: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
     let client = lease::get_client(&request);
     let req_addr = request.options.iter().filter_map(|opt|
-        match opt {
-            &packet::DhcpOption::AddressRequest(ip) => Some(ip.clone()),
+        match *opt {
+            packet::DhcpOption::AddressRequest(ip) => Some(ip),
             _ => None
         }).next();
     if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
         let mask = *au.get_mask();
         let mut opts: Vec<packet::DhcpOption> = au.get_options().iter().map(|x| (*x).clone()).collect();
         if let Some(l) = au.get_renewed_lease(&client, req_addr) {
-            let addr = l.assigned.clone();
+            let addr = l.assigned;
             let s_ip = match get_server_ip(&iface.my_ip, addr, mask) {
                     Some(i) => i,
                     None => {
@@ -69,10 +70,10 @@ fn get_ack(iface: &mut Interface, request: packet::DhcpPacket<EthernetAddr>) -> 
                 xid: request.xid,
                 seconds: 0,
                 client_addr: None,
-                your_addr: Some(addr.clone()),
+                your_addr: Some(addr),
                 server_addr: None,
                 gateway_addr: None,
-                client_hwaddr: request.client_hwaddr.clone(),
+                client_hwaddr: request.client_hwaddr,
                 options: opts,
                 flags: Vec::new(),
                 };
@@ -88,13 +89,13 @@ fn get_ack(iface: &mut Interface, request: packet::DhcpPacket<EthernetAddr>) -> 
             your_addr: None,
             server_addr: None,
             gateway_addr: None,
-            client_hwaddr: request.client_hwaddr.clone(),
+            client_hwaddr: request.client_hwaddr,
             options: vec![packet::DhcpOption::Message("Can't give you this address. Did I offer it?".into())],
             flags: Vec::new(),
             };
-        let s_ip = iface.my_ip.get(0).unwrap();
+        let s_ip = iface.my_ip[0];
 
-        return Some((answer, *s_ip))
+        return Some((answer, s_ip))
     }
     let answer = packet::DhcpPacket {
         packet_type: packet::PacketType::Nack,
@@ -104,13 +105,13 @@ fn get_ack(iface: &mut Interface, request: packet::DhcpPacket<EthernetAddr>) -> 
         your_addr: None,
         server_addr: None,
         gateway_addr: None,
-        client_hwaddr: request.client_hwaddr.clone(),
+        client_hwaddr: request.client_hwaddr,
         options: vec![packet::DhcpOption::Message("Can't find a viable allocator for this client".into())],
         flags: Vec::new(),
         };
-    let s_ip = iface.my_ip.get(0).unwrap();
+    let s_ip = iface.my_ip[0];
 
-    Some((answer, *s_ip))
+    Some((answer, s_ip))
 }
 
 // TODO: This is horrible
@@ -118,15 +119,16 @@ fn get_offer_alloc<'a>(au: &'a mut allocationunit::AllocationUnit,
                        client: &lease::Client<::frame::ethernet::EthernetAddr>,
                        req: Option<Ipv4Addr>)
                        -> Option<&'a lease::Allocation<EthernetAddr, Ipv4Addr>> {
-    let _ = au.get_allocation(&client, req);
-    au.get_allocation(&client, None)
+    let _ = au.get_allocation(client, req);
+    au.get_allocation(client, None)
 }
 
+#[allow(unknown_lints,needless_pass_by_value)]
 fn get_offer(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
     let client = lease::get_client(&discover);
     let req_addr = discover.options.iter().flat_map(|opt|
         match *opt {
-            packet::DhcpOption::AddressRequest(ip) => Some(ip.clone()),
+            packet::DhcpOption::AddressRequest(ip) => Some(ip),
             _ => None
         }).next();
     if let Some(mut au) = alloc_for_client(&mut iface.allocators, &client) {
@@ -147,10 +149,10 @@ fn get_offer(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) 
                 xid: discover.xid,
                 seconds: 0,
                 client_addr: None,
-                your_addr: Some(addr.clone()),
+                your_addr: Some(addr),
                 server_addr: None,
                 gateway_addr: None,
-                client_hwaddr: discover.client_hwaddr.clone(),
+                client_hwaddr: discover.client_hwaddr,
                 options: opts,
                 flags: Vec::new(),
                 };
@@ -163,6 +165,7 @@ fn get_offer(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) 
 }
 
 //TODO: Check what exactly we need in here
+#[allow(unknown_lints,needless_pass_by_value)]
 fn get_inform(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
     let client = lease::get_client(&discover);
     if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
@@ -175,13 +178,13 @@ fn get_inform(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>)
             your_addr: None,
             server_addr: None,
             gateway_addr: None,
-            client_hwaddr: discover.client_hwaddr.clone(),
+            client_hwaddr: discover.client_hwaddr,
             options: opts,
             flags: Vec::new(),
             };
         debug!("Informing: {:?}", &offer);
-        let s_ip = iface.my_ip.get(0).unwrap();
-        return Some((offer, *s_ip));
+        let s_ip = iface.my_ip[0];
+        return Some((offer, s_ip));
     }
 
     None
@@ -212,7 +215,7 @@ fn handle_packet(
         tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
         iface: &mut Interface,
         packet: packet::DhcpPacket<EthernetAddr>) {
-    let target_mac = packet.client_hwaddr.clone();
+    let target_mac = packet.client_hwaddr;
     if let Some((answer, s_ip)) = get_answer(iface, packet) {
 
         let udp: UDP<packet::DhcpPacket<EthernetAddr>, packet::DhcpServer>  = UDP {remote: 68, payload: answer, local: PhantomData};
@@ -235,7 +238,7 @@ pub fn handle_interface(conf: config::Interface) -> std::thread::JoinHandle<()> 
             match rx.next() {
                 Ok(rec) => {
                     trace!("Received something");
-                    let packet = decode_dhcp(&rec);
+                    let packet = decode_dhcp(rec);
                     debug!("{:?}", &packet);
                     match packet {
                         Err(_) => {},

@@ -44,7 +44,7 @@ fn drop_caps() -> std::io::Result<()> {
     let task_dirs = std::fs::read_dir("/proc/self/task")?;
     let tasks = task_dirs.map(|entry| match entry {
         Ok(e) => Ok(i32::from_str(e.file_name().to_str().unwrap()).unwrap()),
-        Err(e) => return Err(e),
+        Err(e) =>Err(e),
     });
 
     for task in tasks {
@@ -110,7 +110,7 @@ fn run_server(path: &str) {
 
     let threads: Vec<std::thread::JoinHandle<()>> =
             conf.interfaces.into_iter()
-            .map(|i| handler::handle_interface(i))
+            .map(handler::handle_interface)
             .collect();
 
     drop_user();

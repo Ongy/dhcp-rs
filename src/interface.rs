@@ -41,12 +41,12 @@ impl Interface {
     pub fn get(conf: config::Interface)
             -> (Interface, Box<pnet::datalink::DataLinkSender>, Box<pnet::datalink::DataLinkReceiver>) {
         let interfaces = datalink::interfaces();
-        let interface = match interfaces.into_iter().filter(|iface: &NetworkInterface | iface.name == conf.name.as_str()).next() {
+        let interface = match interfaces.into_iter().find(|iface: &NetworkInterface | iface.name == conf.name.as_str()) {
                 Some(x) => x,
                 None => {
                     error!("Couldn't find interface: {}", conf.name);
                     println!("Couldn't find interface: {}", conf.name);
-                    std::process::exit(1);
+                    std::process::exit(1)
                 }
             };
         // I'm just going to asume this one, sorry :)
@@ -77,7 +77,7 @@ impl Interface {
             };
         info!("Using interface {} with local mac {} and ips {:?}", &ret.name, &ret.my_mac, &ret.my_ip);
 
-        return (ret, tx, rx);
+        (ret, tx, rx)
     }
 
 }

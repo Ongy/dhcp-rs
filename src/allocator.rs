@@ -55,14 +55,12 @@ impl Allocator {
 
 
 
-        let ret = lease::Allocation{
+        lease::Allocation{
             assigned: assigned,
             client: client,
             last_seen: lease::SerializeableTime(time::get_time()),
             forever: false,
-            };
-
-        return ret;
+            }
     }
 
     fn del_alloc(&self,
@@ -118,9 +116,9 @@ impl Allocator {
      * for them (which would lock them
      */
     fn get_viable_allocs(&self) -> Vec<&lease::Allocation<EthernetAddr, Ipv4Addr>> {
-        return self.allocations.iter().filter(|alloc| !alloc.forever).filter(|alloc|
+        self.allocations.iter().filter(|alloc| !alloc.forever).filter(|alloc|
             self.leases.iter().filter(|l| l.is_active()).all(|lease|
-                !lease.is_for_alloc(alloc))).collect();
+                !lease.is_for_alloc(alloc))).collect()
     }
 
     pub fn new(p: pool::GPool<Ipv4Addr>, allocate: Option<String>, deallocate: Option<String>, lease: Option<String>) -> Allocator {
@@ -188,10 +186,10 @@ impl Allocator {
                           && client.overlapping(&alloc.client));
 
         found.or_else(|| {
-            if self.address_pool.is_suitable(*addr)
+            if self.address_pool.is_suitable(addr)
                     && !self.address_pool.is_used(addr) {
                 info!("Creating requested allocation for {:?} on ip {}", client, addr);
-                self.address_pool.set_used(*addr);
+                self.address_pool.set_used(addr);
                 let alloc = self.make_alloc(*addr, client.clone());
                 self.allocations.push(alloc);
                 Some(self.allocations.len() - 1)
@@ -249,7 +247,7 @@ impl Allocator {
         self.allocations = serde_json::from_str(allocs)?;
 
         for alloc in &self.allocations {
-            self.address_pool.set_used(alloc.assigned.into());
+            self.address_pool.set_used(&alloc.assigned);
         }
 
         Ok(())
@@ -257,7 +255,7 @@ impl Allocator {
 
     fn provide_ip(&mut self) -> Option<(Ipv4Addr, bool)> {
         let pooled = self.address_pool.next().map(|i| (i, false));
-        return pooled.or_else( || {
+        pooled.or_else( || {
 
             let mut viable = self.get_viable_allocs();
             viable.sort_by_key(|alloc| alloc.last_seen);
@@ -266,8 +264,8 @@ impl Allocator {
                 return Some((alloc.assigned, true));
             }
 
-            return None;
-            });
+            None
+            })
     }
 
     fn next_ip(&mut self) -> Option<(Ipv4Addr)> {
@@ -282,10 +280,10 @@ impl Allocator {
             let alloc = self.allocations.swap_remove(index);
             self.del_alloc(alloc);
 
-            return Some(i);
+            Some(i)
+        } else {
+            None
         }
-
-        None
     }
 
     pub fn get_name(&self) -> String {
@@ -360,7 +358,7 @@ impl Allocator {
             });
 
 
-        return ret;
+        ret
     }
 
     pub fn get_bounds(&self) -> (Ipv4Addr, Ipv4Addr) {

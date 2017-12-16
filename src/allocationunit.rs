@@ -2,6 +2,7 @@ use std::boxed::Box;
 use std::io::{ErrorKind, Result};
 use std::net::Ipv4Addr;
 use std;
+use std::ops::Deref;
 
 use allocator;
 use config;
@@ -23,7 +24,7 @@ impl AllocationUnit {
                        alloc: &allocator::Allocator) {
         if !opts.iter().any(|opt| opt.get_type() == 51) {
             info!("Defaulting lease time");
-            opts.push(packet::DhcpOption::LeaseTime(86400));
+            opts.push(packet::DhcpOption::LeaseTime(86_400));
         }
 
         if !opts.iter().any(|opt| opt.get_type() == 1) {
@@ -42,7 +43,7 @@ impl AllocationUnit {
         }
     }
 
-    pub fn new(conf: config::Pool, iface: &String) -> Self {
+    pub fn new(conf: config::Pool, iface: &str) -> Self {
         let pool = conf.range.get_pool(iface);
         info!("Creating allocator for {} with pool {}", iface, pool.get_name());
         let mut allocator = allocator::Allocator::new(pool, conf.allocate, conf.deallocate, conf.lease);
@@ -62,17 +63,17 @@ impl AllocationUnit {
                 }
             });
 
-        return AllocationUnit {
+        AllocationUnit {
             selector: conf.selector,
             options: opts.into_boxed_slice(),
             allocator: allocator
-            };
+            }
     }
 
     // We can savely unwrap() here because we enforce the exiistance over default_options called by
     // new
-    pub fn get_mask<'a>(&'a self) -> &'a Ipv4Addr {
-        self.options.iter().filter_map(|x| if x.get_type() == 1 {Some(x)} else {None}).next().map(|x| match *x {
+    pub fn get_mask(&self) -> &Ipv4Addr {
+        self.options.iter().find(|x| x.get_type() == 1).map(|x| match *x {
                 packet::DhcpOption::SubnetMask(ref mask) => mask,
                 _ => panic!("Found non SubnetMask SubnetMask"),
             }).unwrap()
@@ -86,7 +87,7 @@ impl AllocationUnit {
 
     pub fn is_suitable(&self, client: &::lease::Client<::frame::ethernet::EthernetAddr>) -> bool { self.selector.is_suitable(client) }
 
-    pub fn get_options<'a>(&'a self) -> &'a Box<[packet::DhcpOption]> { &self.options }
+    pub fn get_options(&self) -> &[packet::DhcpOption] { self.options.deref() }
 
     pub fn get_allocation(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Allocation<EthernetAddr, Ipv4Addr>> {
         self.allocator.get_allocation(client, addr)

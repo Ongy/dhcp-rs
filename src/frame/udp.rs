@@ -48,7 +48,7 @@ impl<P: Serializeable, S: HasCode<CodeType=u16>> Serializeable for UDP<P, S> {
 
 		let payload = P::deserialize_from(&buffer[8..len as usize])?;
 
-		return Ok(Self{remote: src, payload: payload, local: PhantomData});
+		Ok(Self{remote: src, payload: payload, local: PhantomData})
 	}
 }
 

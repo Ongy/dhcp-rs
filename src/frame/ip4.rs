@@ -92,7 +92,7 @@ impl<P: Serializeable + HasCode<CodeType=u8>> Serializeable for IPv4Packet<P> {
 		let payload = P::deserialize_from(&buffer[20..ip_len as usize])?;
 
 
-		return Ok(Self{src: src, dst: dst, ttl: ttl, payload: payload});
+		Ok(Self{src: src, dst: dst, ttl: ttl, payload: payload})
 	}
 }
 

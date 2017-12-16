@@ -91,11 +91,11 @@ impl<P: Poolable + Clone> GPool<P> {
         let vec: Vec<GRange<P>> = iter.collect();
         let b = vec.into_boxed_slice();
         let range = b.iter().next().unwrap().clone();
-        return GPool { ranges: b, next: range.lower.clone(), current: range, range_index: 0, used: HashSet::new()};
+        GPool { ranges: b, next: range.lower.clone(), current: range, range_index: 0, used: HashSet::new()}
     }
 
     pub fn new(lower: P, upper: P) -> Self {
-        return Self::new_multi(iter::once((lower, upper)));
+        Self::new_multi(iter::once((lower, upper)))
     }
 }
 
@@ -106,10 +106,10 @@ impl<P: Poolable> GPool<P> {
         for range in self.ranges.deref() {
             sum += P::diff(&range.upper, &range.lower);
         }
-        return sum;
+        sum
     }
 
-    pub fn set_used(&mut self, ip: P) {
+    pub fn set_used(&mut self, ip: &P) {
         self.used.insert(ip.into_internal());
     }
 
@@ -117,13 +117,13 @@ impl<P: Poolable> GPool<P> {
     //    self.used.remove(&ip);
     //}
 
-    pub fn is_suitable(&self, ip: P) -> bool {
+    pub fn is_suitable(&self, ip: &P) -> bool {
         let val = ip.into_internal();
-        return self.ranges.iter().any(|range| range.lower <= val && range.upper >= val);
+        self.ranges.iter().any(|range| range.lower <= val && range.upper >= val)
     }
 
     pub fn is_used(&self, ip: &P) -> bool {
-        return self.used.contains(&ip.into_internal());
+        self.used.contains(&ip.into_internal())
     }
 
     pub fn get_lowest(&self) -> P {

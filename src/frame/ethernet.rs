@@ -83,7 +83,7 @@ impl ConfigAble for EthernetAddr {
         }
 
         fun(String::from("At end of file :("));
-        return Err(ParseError::Final);
+        Err(ParseError::Final)
     }
 
     fn get_name() -> &'static str { "EternetAddr" }
@@ -128,7 +128,7 @@ impl<P: Serializeable + HasCode<CodeType=u16>> Serializeable for Ethernet<P> {
 		let src = [buffer[6], buffer[7], buffer[8], buffer[9], buffer[10], buffer[11]];
 		let payload = P::deserialize_from(&buffer[14..])?;
 
-		return Ok(Ethernet{src: EthernetAddr(src), dst: EthernetAddr(dst), payload: payload})
+		Ok(Ethernet{src: EthernetAddr(src), dst: EthernetAddr(dst), payload: payload})
 	}
 }
 

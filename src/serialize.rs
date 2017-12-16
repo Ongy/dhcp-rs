@@ -18,9 +18,9 @@ pub trait HasCode {
 pub fn serialize<P:Serializeable>(obj: &P) -> Box<[u8]> {
 	let mut buffer = Vec::with_capacity(1514);
 	obj.serialize_onto(&mut buffer);
-	return buffer.into_boxed_slice();
+	buffer.into_boxed_slice()
 }
 
 pub fn deserialize<P:Serializeable>(buffer: &[u8]) -> Result<P, String> {
-	return P::deserialize_from(buffer);
+	P::deserialize_from(buffer)
 }
