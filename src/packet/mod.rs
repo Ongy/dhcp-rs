@@ -230,6 +230,7 @@ pub enum DhcpOption {
     Router(Box<[Ipv4Addr]>),
     DomainNameServer(Box<[Ipv4Addr]>),
     Hostname(String),
+    DomainName(String),
     BroadcastAddress(Ipv4Addr),
     LeaseTime(u32),
     AddressRequest(Ipv4Addr),
@@ -247,7 +248,7 @@ pub enum DhcpOption {
 #[cfg(test)]
 impl Arbitrary for DhcpOption {
     fn arbitrary<G: Gen>(gen: &mut G) -> Self {
-        match u8::arbitrary(gen) % 15 {
+        match u8::arbitrary(gen) % 16 {
             0  => DhcpOption::SubnetMask(Arbitrary::arbitrary(gen)),
             1  => {
                 let vec: Vec<Ipv4Addr> = Arbitrary::arbitrary(gen);
@@ -260,27 +261,28 @@ impl Arbitrary for DhcpOption {
                 DhcpOption::DomainNameServer(vec2.into_boxed_slice())
             },
             3  => DhcpOption::Hostname(Arbitrary::arbitrary(gen)),
-            4  => DhcpOption::BroadcastAddress(Arbitrary::arbitrary(gen)),
-            5  => DhcpOption::LeaseTime(Arbitrary::arbitrary(gen)),
-            6  => DhcpOption::AddressRequest(Arbitrary::arbitrary(gen)),
-            7  => DhcpOption::MessageType(Arbitrary::arbitrary(gen)),
-            8  => DhcpOption::ServerIdentifier(Arbitrary::arbitrary(gen)),
-            9  => DhcpOption::Message(Arbitrary::arbitrary(gen)),
-            10 => DhcpOption::RenewalTime(Arbitrary::arbitrary(gen)),
-            11 => DhcpOption::RebindingTime(Arbitrary::arbitrary(gen)),
-            12 => {
+            4  => DhcpOption::DomainName(Arbitrary::arbitrary(gen)),
+            5  => DhcpOption::BroadcastAddress(Arbitrary::arbitrary(gen)),
+            6  => DhcpOption::LeaseTime(Arbitrary::arbitrary(gen)),
+            7  => DhcpOption::AddressRequest(Arbitrary::arbitrary(gen)),
+            8  => DhcpOption::MessageType(Arbitrary::arbitrary(gen)),
+            9  => DhcpOption::ServerIdentifier(Arbitrary::arbitrary(gen)),
+            10 => DhcpOption::Message(Arbitrary::arbitrary(gen)),
+            11 => DhcpOption::RenewalTime(Arbitrary::arbitrary(gen)),
+            12 => DhcpOption::RebindingTime(Arbitrary::arbitrary(gen)),
+            13 => {
                 let vec: Vec<u8> = Arbitrary::arbitrary(gen);
                 let vec2: Vec<u8> = vec.into_iter().take(255).collect();
                 DhcpOption::ClientIdentifier(vec2.into_boxed_slice())
             },
             //TODO: Reenable when the long option parsing is in
             //13 => DhcpOption::DomainSearch(/*Arbitrary::arbitrary(gen)*/vec![]),
-            13 => {
+            14 => {
                 let vec: Vec<ClasslessRoute> = Arbitrary::arbitrary(gen);
                 let vec2: Vec<ClasslessRoute> = vec.into_iter().take(28).collect();
                 DhcpOption::ClasslessRoutes(vec2.into_boxed_slice())
             },
-            14 => {
+            15 => {
                 let vec: Vec<u8> = Arbitrary::arbitrary(gen);
                 let vec2: Vec<u8> = vec.into_iter().take(255).collect();
                 DhcpOption::Unknown(13 as u8, vec2.into_boxed_slice())
@@ -297,6 +299,7 @@ impl DhcpOption {
             DhcpOption::Router(_) => 3,
             DhcpOption::DomainNameServer(_) => 6,
             DhcpOption::Hostname(_) => 12,
+            DhcpOption::DomainName(_) => 15,
             DhcpOption::BroadcastAddress(_) => 28,
             DhcpOption::AddressRequest(_) => 50,
             DhcpOption::LeaseTime(_) => 51,
@@ -318,6 +321,7 @@ impl DhcpOption {
             DhcpOption::Router(ref vec) => 4 * vec.len() as u8,
             DhcpOption::DomainNameServer(ref vec) => 4 * vec.len() as u8,
             DhcpOption::Hostname(ref str) => str.as_bytes().len() as u8,
+            DhcpOption::DomainName(ref str) => str.as_bytes().len() as u8,
             DhcpOption::BroadcastAddress(_) => 4,
             DhcpOption::LeaseTime(_) => 4,
             DhcpOption::AddressRequest(_) => 4,
@@ -347,6 +351,7 @@ impl DhcpOption {
                 }
             }
             DhcpOption::Hostname(ref str) => buffer.extend(str.as_bytes().iter()),
+            DhcpOption::DomainName(ref str) => buffer.extend(str.as_bytes().iter()),
             DhcpOption::BroadcastAddress(ref ip) => ip.push_to(buffer),
             DhcpOption::LeaseTime(l) =>
                 buffer.write_u32::<NetworkEndian>(l).unwrap(),
@@ -440,6 +445,7 @@ impl DhcpOption {
             3  => Ok(DhcpOption::Router(Self::ipv4s_from_buffer(buffer)?)),
             6  => Ok(DhcpOption::DomainNameServer(Self::ipv4s_from_buffer(buffer)?)),
             12 => Ok(DhcpOption::Hostname(Self::string_from_buffer(buffer)?)),
+            15 => Ok(DhcpOption::DomainName(Self::string_from_buffer(buffer)?)),
             28 => Ok(DhcpOption::BroadcastAddress(Self::ipv4_from_buffer(buffer)?)),
             50 => Ok(DhcpOption::AddressRequest(Self::ipv4_from_buffer(buffer)?)),
             51 => Ok(DhcpOption::LeaseTime(Self::u32_from_buffer(buffer)?)),
