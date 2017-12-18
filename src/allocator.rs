@@ -166,7 +166,10 @@ impl Allocator {
         self.get_lease_mut(client, addr).map(|l| { Self::renew_lease(&hook, l); &*l })
     }
 
-    fn get_lease_mut(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&mut lease::Lease<EthernetAddr, Ipv4Addr>> {
+    fn get_lease_mut(&mut self,
+                     client: &lease::Client<EthernetAddr>, addr:
+                     Option<Ipv4Addr>)
+                     -> Option<&mut lease::Lease<EthernetAddr, Ipv4Addr>> {
         self.find_lease(client).or_else(||{
             self.get_allocation_mut(client, addr)
                 .map(|alloc| lease::Lease::for_alloc(alloc, 7200))
@@ -178,7 +181,10 @@ impl Allocator {
         }).and_then(move |i| self.leases.get_mut(i))
     }
 
-    fn get_requested(&mut self, client: &lease::Client<EthernetAddr>, addr: &Ipv4Addr) -> Option<&mut lease::Allocation<EthernetAddr, Ipv4Addr>> {
+    fn get_requested(&mut self,
+                     client: &lease::Client<EthernetAddr>,
+                     addr: &Ipv4Addr)
+                     -> Option<&mut lease::Allocation<EthernetAddr, Ipv4Addr>> {
         trace!("Getting requested allocation");
         let found = self.allocations
             .iter()
@@ -363,5 +369,106 @@ impl Allocator {
 
     pub fn get_bounds(&self) -> (Ipv4Addr, Ipv4Addr) {
         (self.address_pool.get_lowest(), self.address_pool.get_highest())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Allocator;
+    use pool::GPool;
+    use std::net::Ipv4Addr;
+    use frame::ethernet::EthernetAddr;
+    use lease;
+
+    #[test]
+    fn gets_first() {
+        let mut alloc = Allocator::new(GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)).unwrap(), None, None, None);
+        let client = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 0])};
+
+        assert!(alloc.get_allocation(&client, None).map(|a| a.assigned == Ipv4Addr::new(0, 0, 0, 0)).unwrap_or(false));
+    }
+
+    #[test]
+    fn gets_next () {
+        let mut alloc = Allocator::new(GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)).unwrap(), None, None, None);
+        let client = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 0])};
+        let client2 = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 1])};
+
+        let _ = alloc.get_allocation(&client, None);
+        assert!(alloc.get_allocation(&client2, None).map(|a| a.assigned == Ipv4Addr::new(0, 0, 0, 1)).unwrap_or(false));
+    }
+
+    #[test]
+    fn gets_same () {
+        let mut alloc = Allocator::new(GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)).unwrap(), None, None, None);
+        let client = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 0])};
+
+        let _ = alloc.get_allocation(&client, None);
+        assert!(alloc.get_allocation(&client, None).map(|a| a.assigned == Ipv4Addr::new(0, 0, 0, 0)).unwrap_or(false));
+    }
+
+    #[test]
+    fn gets_requested() {
+        let mut alloc = Allocator::new(GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)).unwrap(), None, None, None);
+        let client = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 0])};
+
+        assert!(alloc.get_allocation(&client, Some(Ipv4Addr::new(0, 0, 0, 2))).map(|a| a.assigned == Ipv4Addr::new(0, 0, 0, 2)).unwrap_or(false));
+    }
+
+    #[test]
+    fn gets_requested_again() {
+        let mut alloc = Allocator::new(GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)).unwrap(), None, None, None);
+        let client = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 0])};
+
+        let _ = alloc.get_allocation(&client, Some(Ipv4Addr::new(0, 0, 0, 2)));
+        assert!(alloc.get_allocation(&client, None).map(|a| a.assigned == Ipv4Addr::new(0, 0, 0, 2)).unwrap_or(false));
+    }
+
+    #[test]
+    fn denies_requested() {
+        let mut alloc = Allocator::new(GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)).unwrap(), None, None, None);
+        let client = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 0])};
+        let client2 = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 1])};
+
+        let _ = alloc.get_allocation(&client, None);
+        assert!(alloc.get_allocation(&client2, Some(Ipv4Addr::new(0, 0, 0, 0))).is_none());
+    }
+
+    #[test]
+    fn denies_unsuitable() {
+        let mut alloc = Allocator::new(GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)).unwrap(), None, None, None);
+        let client = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 0])};
+
+        assert!(alloc.get_allocation(&client, Some(Ipv4Addr::new(0, 0, 0, 6))).is_none());
+    }
+
+    #[test]
+    fn frees_oldest() {
+        let mut alloc = Allocator::new(GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 2)).unwrap(), None, None, None);
+        let client = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 0])};
+        let client2 = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 1])};
+        let client3 = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 2])};
+        let client4 = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 3])};
+
+        let _ = alloc.get_allocation(&client, None);
+        let _ = alloc.get_allocation(&client2, None);
+        let _ = alloc.get_allocation(&client3, None);
+
+        assert!(alloc.get_allocation(&client4, None).map(|a| a.assigned == Ipv4Addr::new(0, 0, 0, 0)).unwrap_or(false));
+    }
+
+    #[test]
+    fn frees_non_leased() {
+        let mut alloc = Allocator::new(GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 2)).unwrap(), None, None, None);
+        let client = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 0])};
+        let client2 = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 1])};
+        let client3 = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 2])};
+        let client4 = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 3])};
+
+        let _ = alloc.get_renewed_lease(&client, None);
+        let _ = alloc.get_allocation(&client2, None);
+        let _ = alloc.get_allocation(&client3, None);
+
+        assert!(alloc.get_allocation(&client4, None).map(|a| a.assigned == Ipv4Addr::new(0, 0, 0, 1)).unwrap_or(false));
     }
 }

@@ -23,7 +23,7 @@ pub enum IPPool {
 }
 
 impl IPPool {
-    pub fn get_pool(self, name: &str) -> pool::GPool<Ipv4Addr> {
+    pub fn get_pool(self, name: &str) -> Option<pool::GPool<Ipv4Addr>> {
         match self {
             IPPool::Range(range) => pool::GPool::new(range.lower, range.upper),
             IPPool::Ranges(ranges) => pool::GPool::new_multi(ranges.into_iter().map(|r| (r.lower, r.upper))),
@@ -61,12 +61,14 @@ impl IPPool {
 
                 info!("Using range: {}-{}. Reserving {} for my own", lower, upper, own);
 
-                let mut pool = pool::GPool::new(lower, upper);
-                pool.set_used(&lower);
-                pool.set_used(&upper);
-                pool.set_used(&own);
+                let mut ret = pool::GPool::new(lower, upper);
+                if let Some(ref mut pool) = ret {
+                    pool.set_used(&lower);
+                    pool.set_used(&upper);
+                    pool.set_used(&own);
+                }
 
-                pool
+                ret
             }
         }
     }

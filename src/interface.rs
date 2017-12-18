@@ -63,7 +63,7 @@ impl Interface {
         let name = conf.name;
         let pool = conf.pool;
 
-        let allocs: Vec<allocationunit::AllocationUnit> = pool.into_iter().map(|x| allocationunit::AllocationUnit::new(x, &name)).collect();
+        let allocs: Vec<allocationunit::AllocationUnit> = pool.into_iter().map(|x| allocationunit::AllocationUnit::from_conf(x, &name)).collect();
         let ip = interface.ips.into_iter().flat_map(|x| match x {
                 ipnetwork::IpNetwork::V4(net) => Some(net.ip()),
                 _ => None,

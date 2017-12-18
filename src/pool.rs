@@ -28,10 +28,25 @@ impl Poolable for Ipv4Addr {
     fn diff(arg1: &u32, arg2: &u32) -> usize { *arg1 as usize - *arg2 as usize + 1 }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct GRange<P: Poolable> {
     lower: P::Internal,
     upper: P::Internal,
+}
+
+impl<P: Poolable> GRange<P> {
+    fn overlapping(&self, rhs: &Self) -> bool {
+        (self.lower <= rhs.upper && self.lower >= rhs.lower)
+            || (self.upper >= rhs.lower && self.upper <= rhs.upper)
+    }
+
+    fn new(lower: P::Internal, upper: P::Internal) -> Option<Self> {
+        if lower > upper {
+            None
+        } else {
+            Some(GRange{lower: lower, upper: upper})
+        }
+    }
 }
 
 impl<P: std::fmt::Display + Poolable> GRange<P> {
@@ -84,17 +99,32 @@ impl<P: Poolable + Clone> Iterator for GPool<P> {
     }
 }
 
-impl<P: Poolable + Clone> GPool<P> {
-    pub fn new_multi<I>(ranges: I) -> Self
-        where I: Iterator<Item=(P, P)> {
-        let iter = ranges.map(|(lower, upper)| GRange{lower: lower.into_internal(), upper: upper.into_internal()});
-        let vec: Vec<GRange<P>> = iter.collect();
+impl<P: Poolable + Clone + PartialEq> GPool<P> {
+    pub fn new_multi<I>(ranges: I) -> Option<Self>
+        where I: IntoIterator<Item=(P, P)> {
+        let iter = ranges.into_iter().map(|(lower, upper)| GRange::new(lower.into_internal(), upper.into_internal()));
+        let opt_vec: Vec<Option<GRange<P>>> = iter.collect();
+
+        if opt_vec.iter().any(|o| o.is_none()) {
+            return None;
+        }
+
+        let vec: Vec<GRange<P>> = opt_vec.into_iter().map(|o| o.unwrap()).collect();
+
+        for i in 0 .. (vec.len() - 1) {
+            for j in (i + 1) .. vec.len() {
+                if vec[i].overlapping(&vec[j]) {
+                    return None;
+                }
+            }
+        }
+
         let b = vec.into_boxed_slice();
-        let range = b.iter().next().unwrap().clone();
-        GPool { ranges: b, next: range.lower.clone(), current: range, range_index: 0, used: HashSet::new()}
+        let range = b[0].clone();
+        Some(GPool { ranges: b, next: range.lower.clone(), current: range, range_index: 0, used: HashSet::new()})
     }
 
-    pub fn new(lower: P, upper: P) -> Self {
+    pub fn new(lower: P, upper: P) -> Option<Self> {
         Self::new_multi(iter::once((lower, upper)))
     }
 }
@@ -113,9 +143,10 @@ impl<P: Poolable> GPool<P> {
         self.used.insert(ip.into_internal());
     }
 
-    //pub fn set_unused(&mut self, ip: u32) {
-    //    self.used.remove(&ip);
-    //}
+    #[cfg(test)]
+    pub fn set_unused(&mut self, ip: &P) {
+        self.used.remove(&ip.into_internal());
+    }
 
     pub fn is_suitable(&self, ip: &P) -> bool {
         let val = ip.into_internal();
@@ -138,5 +169,149 @@ impl<P: Poolable> GPool<P> {
 impl<P: Poolable + std::fmt::Display> GPool<P> {
     pub fn get_name(&self) -> String {
         self.ranges.iter().map(|r| r.get_name()).join("_")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::GPool;
+    use super::GRange;
+    use std::net::Ipv4Addr;
+
+
+    #[test]
+    fn reject_invalid_range() {
+        assert!(GRange::<Ipv4Addr>::new(5, 0) == None);
+    }
+
+    #[test]
+    fn reject_invalid_simple() {
+        assert!(GPool::new(Ipv4Addr::new(0, 0, 0, 5), Ipv4Addr::new(0, 0, 0, 1)).is_none());
+    }
+
+    #[test]
+    fn simple_iter() {
+        let pool = GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)).unwrap();
+        let result: Vec<Ipv4Addr> = pool.collect();
+
+        assert!(result == vec![
+            Ipv4Addr::new(0, 0, 0, 0),
+            Ipv4Addr::new(0, 0, 0, 1),
+            Ipv4Addr::new(0, 0, 0, 2),
+            Ipv4Addr::new(0, 0, 0, 3),
+            Ipv4Addr::new(0, 0, 0, 4),
+            Ipv4Addr::new(0, 0, 0, 5)
+        ]);
+    }
+
+    #[test]
+    fn simple_size() {
+        let pool = GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)).unwrap();
+
+
+        assert!(pool.size() == 6);
+    }
+
+    #[test]
+    fn skips_used() {
+        let mut pool = GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)).unwrap();
+        pool.set_used(&Ipv4Addr::new(0, 0, 0, 3));
+        let result: Vec<Ipv4Addr> = pool.collect();
+
+        assert!(result == vec![
+            Ipv4Addr::new(0, 0, 0, 0),
+            Ipv4Addr::new(0, 0, 0, 1),
+            Ipv4Addr::new(0, 0, 0, 2),
+            Ipv4Addr::new(0, 0, 0, 4),
+            Ipv4Addr::new(0, 0, 0, 5)
+        ]);
+    }
+
+
+    #[test]
+    fn returns_unused() {
+        let mut pool = GPool::new(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)).unwrap();
+        let _ = pool.next();
+        let _ = pool.next();
+        let _ = pool.next();
+        let _ = pool.next();
+        let _ = pool.next();
+        let _ = pool.next();
+
+        pool.set_unused(&Ipv4Addr::new(0, 0, 0, 2));
+
+        assert!(pool.next() == Some(Ipv4Addr::new(0, 0, 0, 2)));
+    }
+
+    #[test]
+    fn suitable_ranges() {
+        let pool = GPool::new(Ipv4Addr::new(0, 0, 0, 1), Ipv4Addr::new(0, 0, 0, 5)).unwrap();
+
+
+        assert!(pool.is_suitable(&Ipv4Addr::new(0, 0, 0, 1)));
+        assert!(pool.is_suitable(&Ipv4Addr::new(0, 0, 0, 5)));
+
+        assert!(!pool.is_suitable(&Ipv4Addr::new(0, 0, 0, 0)));
+        assert!(!pool.is_suitable(&Ipv4Addr::new(0, 0, 0, 6)));
+    }
+
+    #[test]
+    fn multi_iter() {
+        let ranges = vec![(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)), (Ipv4Addr::new(1, 0, 0, 0), Ipv4Addr::new(1, 0, 0, 5))];
+        let pool = GPool::new_multi(ranges).unwrap();
+        let result: Vec<Ipv4Addr> = pool.collect();
+
+        assert!(result == vec![
+            Ipv4Addr::new(0, 0, 0, 0),
+            Ipv4Addr::new(0, 0, 0, 1),
+            Ipv4Addr::new(0, 0, 0, 2),
+            Ipv4Addr::new(0, 0, 0, 3),
+            Ipv4Addr::new(0, 0, 0, 4),
+            Ipv4Addr::new(0, 0, 0, 5),
+
+            Ipv4Addr::new(1, 0, 0, 0),
+            Ipv4Addr::new(1, 0, 0, 1),
+            Ipv4Addr::new(1, 0, 0, 2),
+            Ipv4Addr::new(1, 0, 0, 3),
+            Ipv4Addr::new(1, 0, 0, 4),
+            Ipv4Addr::new(1, 0, 0, 5)
+        ]);
+    }
+
+    #[test]
+    fn multi_size() {
+        let ranges = vec![(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)), (Ipv4Addr::new(1, 0, 0, 0), Ipv4Addr::new(1, 0, 0, 5))];
+        let pool = GPool::new_multi(ranges).unwrap();
+
+        assert!(pool.size() == 12);
+    }
+
+    #[test]
+    fn rejects_overlapping() {
+        let ranges = vec![(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)), (Ipv4Addr::new(0, 0, 0, 3), Ipv4Addr::new(0, 0, 0, 8))];
+        assert!(GPool::new_multi(ranges).is_none());
+    }
+
+    #[test]
+    fn rejects_identical() {
+        let ranges = vec![(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)), (Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5))];
+        assert!(GPool::new_multi(ranges).is_none());
+    }
+
+    #[test]
+    fn simple_bounds() {
+        let pool = GPool::new(Ipv4Addr::new(0, 0, 0, 1), Ipv4Addr::new(0, 0, 0, 5)).unwrap();
+
+        assert!(pool.get_lowest() == Ipv4Addr::new(0, 0, 0, 1));
+        assert!(pool.get_highest() == Ipv4Addr::new(0, 0, 0, 5));
+    }
+
+    #[test]
+    fn multi_bounds() {
+        let ranges = vec![(Ipv4Addr::new(0, 0, 0, 0), Ipv4Addr::new(0, 0, 0, 5)), (Ipv4Addr::new(1, 0, 0, 0), Ipv4Addr::new(1, 0, 0, 5))];
+        let pool = GPool::new_multi(ranges).unwrap();
+
+        assert!(pool.get_lowest() == Ipv4Addr::new(0, 0, 0, 0));
+        assert!(pool.get_highest() == Ipv4Addr::new(1, 0, 0, 5));
     }
 }
