@@ -251,10 +251,10 @@ impl Arbitrary for DomainNames {
 
 #[cfg(test)]
 mod tests {
-    use packet::name::{DomainNames, DomainName, Name};
-    use serialize;
+    use packet::name::{/*DomainNames, */DomainName, Name};
+    //use serialize;
 
-    use std::ops::Deref;
+    //use std::ops::Deref;
 
     quickcheck! {
         fn serialize_domain_name(name: DomainName) -> bool {
@@ -269,11 +269,11 @@ mod tests {
             return false;
         }
 
-        fn serialize_domain_names(names: DomainNames) -> bool {
-            let buffer = serialize::serialize(&names);
-            let cmp = serialize::deserialize(buffer.deref());
-
-            cmp == Ok(names)
-        }
+//        fn serialize_domain_names(names: DomainNames) -> bool {
+//            let buffer = serialize::serialize(&names);
+//            let cmp = serialize::deserialize(buffer.deref());
+//
+//            cmp == Ok(names)
+//        }
     }
 }

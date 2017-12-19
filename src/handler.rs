@@ -38,14 +38,13 @@ fn alloc_for_client<'a>(aus: &'a mut [allocationunit::AllocationUnit],
     aus.iter_mut().find(|alloc| alloc.is_suitable(client))
 }
 
-fn decode_dhcp(rec: &[u8]) -> Result<packet::DhcpPacket<EthernetAddr>, String> {
+fn decode_dhcp(rec: &[u8]) -> Result<IPv4Packet<UDP<packet::DhcpPacket<EthernetAddr>, packet::DhcpServer>>, String> {
     let tmp = serialize::deserialize::<Ethernet<IPv4Packet<UDP<packet::DhcpPacket<EthernetAddr>, packet::DhcpServer>>>>(rec)?;
-    Ok(tmp.payload.payload.payload)
+    Ok(tmp.payload)
 }
 
-#[allow(unknown_lints,needless_pass_by_value)]
-fn get_ack(iface: &mut Interface, request: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
-    let client = lease::get_client(&request);
+fn get_ack(iface: &mut Interface, request: &packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
+    let client = lease::get_client(request);
     let req_addr = request.options.iter().filter_map(|opt|
         match *opt {
             packet::DhcpOption::AddressRequest(ip) => Some(ip),
@@ -123,9 +122,8 @@ fn get_offer_alloc<'a>(au: &'a mut allocationunit::AllocationUnit,
     au.get_allocation(client, None)
 }
 
-#[allow(unknown_lints,needless_pass_by_value)]
-fn get_offer(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
-    let client = lease::get_client(&discover);
+fn get_offer(iface: &mut Interface, discover: &packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
+    let client = lease::get_client(discover);
     let req_addr = discover.options.iter().flat_map(|opt|
         match *opt {
             packet::DhcpOption::AddressRequest(ip) => Some(ip),
@@ -165,9 +163,8 @@ fn get_offer(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) 
 }
 
 //TODO: Check what exactly we need in here
-#[allow(unknown_lints,needless_pass_by_value)]
-fn get_inform(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
-    let client = lease::get_client(&discover);
+fn get_inform(iface: &mut Interface, discover: &packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
+    let client = lease::get_client(discover);
     if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
         let opts: Vec<packet::DhcpOption> = au.get_options().iter().map(|x| (*x).clone()).collect();
         let offer = packet::DhcpPacket {
@@ -190,8 +187,8 @@ fn get_inform(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>)
     None
 }
 
-fn release(iface: &mut Interface, packet: packet::DhcpPacket<EthernetAddr>) {
-    let client = lease::get_client(&packet);
+fn release(iface: &mut Interface, packet: &packet::DhcpPacket<EthernetAddr>) {
+    let client = lease::get_client(packet);
     if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
         if let Some(addr) = packet.client_addr {
             au.free_lease(&client, addr);
@@ -199,7 +196,7 @@ fn release(iface: &mut Interface, packet: packet::DhcpPacket<EthernetAddr>) {
     }
 }
 
-fn get_answer(iface: &mut Interface, packet: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
+fn get_answer(iface: &mut Interface, packet: &packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
     match packet.packet_type {
         packet::PacketType::Discover => {
             trace!("Creating an offer");
@@ -229,12 +226,18 @@ fn get_answer(iface: &mut Interface, packet: packet::DhcpPacket<EthernetAddr>) -
 fn handle_packet(
         tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,
         iface: &mut Interface,
-        packet: packet::DhcpPacket<EthernetAddr>) {
-    let target_mac = packet.client_hwaddr;
-    if let Some((answer, s_ip)) = get_answer(iface, packet) {
+        packet: IPv4Packet<UDP<packet::DhcpPacket<EthernetAddr>, packet::DhcpServer>>) {
+    let target_mac = packet.payload.payload.client_hwaddr;
+    if let Some((answer, s_ip)) = get_answer(iface, &packet.payload.payload) {
+        let target_ip = if packet.src == Ipv4Addr::new(0, 0, 0, 0) {
+                Ipv4Addr::new(255, 255, 255, 255)
+            } else {
+                packet.src
+            };
+
 
         let udp: UDP<packet::DhcpPacket<EthernetAddr>, packet::DhcpServer>  = UDP {remote: 68, payload: answer, local: PhantomData};
-        let ip = IPv4Packet { src: s_ip, dst:Ipv4Addr::new(255, 255, 255, 255), ttl: 64, payload: udp};
+        let ip = IPv4Packet { src: s_ip, dst: target_ip, ttl: 64, payload: udp};
         let ethernet = Ethernet{src: EthernetAddr::from(&iface.my_mac), dst: target_mac, payload: ip};
 
         let tmp = serialize::serialize(&ethernet);

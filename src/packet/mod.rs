@@ -663,7 +663,17 @@ flag.get_value());
         if buffer.len() < cookie_pos + 5 {
             return Err(String::from("Message to short to contain dhcp"));
         }
-        //TODO: Check for dhcp magic cookie
+        let cookie = NetworkEndian::read_u32(&buffer[cookie_pos..]);
+        if cookie != 0x63_82_53_63 {
+            return Err(String::from("Message didn't contain the DHCP magic cookie"));
+        }
+
+        let htype = buffer[1];
+        let hlen = buffer[2];
+
+        if !((htype == 0 && hlen == 0) || (hlen == Hw::size() && htype == Hw::hwtype())) {
+            return Err(String::from("Message was for the wrong hardware type"));
+        }
 
 
         let xid = NetworkEndian::read_u32(&buffer[4..]);
