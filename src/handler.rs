@@ -228,9 +228,11 @@ fn handle_packet(
     }
 }
 
-pub fn handle_interface(conf: config::Interface) -> std::thread::JoinHandle<()> {
+pub fn handle_interface(conf: config::Interface,
+                        cache: String)
+                        -> std::thread::JoinHandle<()> {
 
-    let (mut iface, mut tx, mut rx)  = Interface::get(conf);
+    let (mut iface, mut tx, mut rx)  = Interface::get(conf, &cache);
 
     std::thread::spawn(move || {
         loop {
@@ -244,7 +246,7 @@ pub fn handle_interface(conf: config::Interface) -> std::thread::JoinHandle<()> 
                         Err(_) => {},
                         Ok(x) => {
                             handle_packet(&mut tx, &mut iface, x);
-                            iface.save_to(std::path::Path::new("/var/lib/dhcpd"));
+                            iface.save_to(&cache);
                         },
                     }
                 }

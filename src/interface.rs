@@ -3,6 +3,8 @@ use ipnetwork;
 use std::net::Ipv4Addr;
 use pnet::datalink::{self, NetworkInterface};
 use pnet::datalink::Channel;
+use std::path::Path;
+use std::fmt::Display;
 
 use allocationunit;
 use pnet;
@@ -16,16 +18,16 @@ pub struct Interface {
 }
 
 impl Interface {
-    pub fn save_to(&self, dir: &std::path::Path) {
+    pub fn save_to<D: AsRef<Path> + Display>(&self, dir: D) {
         info!("Saving interface {}", &self.name);
-        if !(dir.exists() && dir.is_dir()){
+        if !(dir.as_ref().exists() && dir.as_ref().is_dir()){
             warn!("Target directory for saving interface {} didn't exist", &self.name);
             return;
         }
 
-        let my_dir = dir.join(&self.name);
+        let my_dir = dir.as_ref().join(&self.name);
         let _ = std::fs::create_dir_all(my_dir.as_path()).map_err(|e| {
-                error!("Couldn't create storage directory for interface: {} in {}: {}", &self.name, dir.to_string_lossy(), e);
+                error!("Couldn't create storage directory for interface: {} in {}: {}", &self.name, dir, e);
                 ()
             });
 
@@ -38,7 +40,7 @@ impl Interface {
     }
 
     /// This requires `CAP_NET_ADMIN`
-    pub fn get(conf: config::Interface)
+    pub fn get<D: AsRef<Path> + Display>(conf: config::Interface, dir: D)
             -> (Interface, Box<pnet::datalink::DataLinkSender>, Box<pnet::datalink::DataLinkReceiver>) {
         let interfaces = datalink::interfaces();
         let interface = match interfaces.into_iter().find(|iface: &NetworkInterface | iface.name == conf.name.as_str()) {
@@ -63,7 +65,7 @@ impl Interface {
         let name = conf.name;
         let pool = conf.pool;
 
-        let allocs: Vec<allocationunit::AllocationUnit> = pool.into_iter().map(|x| allocationunit::AllocationUnit::from_conf(x, &name)).collect();
+        let allocs: Vec<allocationunit::AllocationUnit> = pool.into_iter().map(|x| allocationunit::AllocationUnit::from_conf(x, &name, &dir)).collect();
         let ip = interface.ips.into_iter().flat_map(|x| match x {
                 ipnetwork::IpNetwork::V4(net) => Some(net.ip()),
                 _ => None,

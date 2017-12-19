@@ -3,6 +3,8 @@ use std::io::{ErrorKind, Result};
 use std::net::Ipv4Addr;
 use std;
 use std::ops::Deref;
+use std::path::Path;
+use std::fmt::Display;
 
 use allocator;
 use pool;
@@ -65,12 +67,12 @@ impl AllocationUnit {
             }
     }
 
-    pub fn from_conf(conf: config::Pool, iface: &str) -> Self {
+    pub fn from_conf<D: AsRef<Path> + Display>(conf: config::Pool, iface: &str, dir: D) -> Self {
         let pool = conf.range.get_pool(iface).unwrap();
         info!("Creating allocator for {} with pool {}", iface, pool.get_name());
         let mut ret = Self::new(pool, conf.selector, conf.options, conf.lease, conf.allocate, conf.deallocate);
 
-        let _ = ret.allocator.read_from(std::path::Path::new("/var/lib/dhcpd").join(iface).as_path()).map_err(|e| {
+        let _ = ret.allocator.read_from(dir.as_ref()).map_err(|e| {
                 match e.kind() {
                     ErrorKind::NotFound => {
                         info!("Couldn't find file or directory while loading allocator: {} on {}", ret.get_name(), iface);

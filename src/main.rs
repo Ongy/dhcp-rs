@@ -108,9 +108,11 @@ fn run_server(path: &str) {
         }
     }
 
+    let cache_dir = conf.cache_dir;
+
     let threads: Vec<std::thread::JoinHandle<()>> =
             conf.interfaces.into_iter()
-            .map(handler::handle_interface)
+            .map(|iface| handler::handle_interface(iface, cache_dir.clone()))
             .collect();
 
     drop_user();
