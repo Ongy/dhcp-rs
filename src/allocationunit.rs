@@ -15,6 +15,7 @@ pub struct AllocationUnit {
     selector: config::Selector,
     allocator: allocator::Allocator,
     options: Box<[packet::DhcpOption]>,
+    lease_time: u32
 }
 
 
@@ -54,11 +55,13 @@ impl AllocationUnit {
         let allocator = allocator::Allocator::new(pool, alloc, dealloc, lease);
         Self::default_options(&mut opts, &allocator);
 
+        let options = opts.into_boxed_slice();
 
         AllocationUnit {
+            lease_time: Self::get_lease_time(options.iter()),
             selector: sel,
-            options: opts.into_boxed_slice(),
-            allocator: allocator
+            options: options,
+            allocator: allocator,
             }
     }
 
@@ -92,6 +95,13 @@ impl AllocationUnit {
             }).unwrap()
     }
 
+    fn get_lease_time<'a, I: IntoIterator<Item=&'a packet::DhcpOption>>(it: I) -> u32 {
+        it.into_iter().find(|x| x.get_type() == 51).map(|x| match *x {
+                packet::DhcpOption::LeaseTime(time) => time,
+                _ => panic!("Found non SubnetMask SubnetMask"),
+            }).unwrap()
+    }
+
     pub fn save_to(&self, dir: &std::path::Path) -> Result<()> {
         self.allocator.save_to(dir)
     }
@@ -107,7 +117,7 @@ impl AllocationUnit {
     }
 
     pub fn get_renewed_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
-        self.allocator.get_renewed_lease(client, addr)
+        self.allocator.get_renewed_lease(client, addr, self.lease_time)
     }
 }
 

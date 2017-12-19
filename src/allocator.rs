@@ -157,22 +157,27 @@ impl Allocator {
             .or_else(|| self.leases.iter().position(|lease| client.hostname.is_some() && lease.client.hostname == client.hostname))
     }
 
-    pub fn get_renewed_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
+    pub fn get_renewed_lease(&mut self,
+                             client: &lease::Client<EthernetAddr>,
+                             addr: Option<Ipv4Addr>,
+                             lease_time: u32)
+                             -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
         let hook = self.lease_hook.clone();
         if let Some(a) = self.get_allocation_mut(client, addr) {
             a.last_seen = lease::SerializeableTime(time::get_time());
         }
 
-        self.get_lease_mut(client, addr).map(|l| { Self::renew_lease(&hook, l); &*l })
+        self.get_lease_mut(client, addr, lease_time).map(|l| { Self::renew_lease(&hook, l); &*l })
     }
 
     fn get_lease_mut(&mut self,
-                     client: &lease::Client<EthernetAddr>, addr:
-                     Option<Ipv4Addr>)
+                     client: &lease::Client<EthernetAddr>,
+                     addr: Option<Ipv4Addr>,
+                     lease_time: u32)
                      -> Option<&mut lease::Lease<EthernetAddr, Ipv4Addr>> {
         self.find_lease(client).or_else(||{
             self.get_allocation_mut(client, addr)
-                .map(|alloc| lease::Lease::for_alloc(alloc, 7200))
+                .map(|alloc| lease::Lease::for_alloc(alloc, lease_time))
                 .map(|l| {
                 info!("Created lease for {:?}: {:?}", client, &l);
                 self.leases.push(l);
@@ -465,7 +470,7 @@ mod test {
         let client3 = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 2])};
         let client4 = lease::Client{client_identifier: None, hostname: None, hw_addr: EthernetAddr([0, 0, 0, 0, 0, 3])};
 
-        let _ = alloc.get_renewed_lease(&client, None);
+        let _ = alloc.get_renewed_lease(&client, None, 7200);
         let _ = alloc.get_allocation(&client2, None);
         let _ = alloc.get_allocation(&client3, None);
 
