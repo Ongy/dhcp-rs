@@ -121,6 +121,10 @@ impl AllocationUnit {
     pub fn get_renewed_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: Option<Ipv4Addr>) -> Option<&lease::Lease<EthernetAddr, Ipv4Addr>> {
         self.allocator.get_renewed_lease(client, addr, self.lease_time)
     }
+
+    pub fn free_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: Ipv4Addr) {
+        self.allocator.free_lease(client, addr);
+    }
 }
 
 #[cfg(test)]

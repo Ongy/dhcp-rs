@@ -190,6 +190,15 @@ fn get_inform(iface: &mut Interface, discover: packet::DhcpPacket<EthernetAddr>)
     None
 }
 
+fn release(iface: &mut Interface, packet: packet::DhcpPacket<EthernetAddr>) {
+    let client = lease::get_client(&packet);
+    if let Some(au) = alloc_for_client(&mut iface.allocators, &client) {
+        if let Some(addr) = packet.client_addr {
+            au.free_lease(&client, addr);
+        }
+    }
+}
+
 fn get_answer(iface: &mut Interface, packet: packet::DhcpPacket<EthernetAddr>) -> Option<(packet::DhcpPacket<EthernetAddr>, Ipv4Addr)> {
     match packet.packet_type {
         packet::PacketType::Discover => {
@@ -204,12 +213,18 @@ fn get_answer(iface: &mut Interface, packet: packet::DhcpPacket<EthernetAddr>) -
             trace!("Someone wants to get informed");
             get_inform(iface, packet)
         }
+        packet::PacketType::Release => {
+            trace!("Someone wants to get informed");
+            release(iface, packet);
+            None
+        }
         x => {
             warn!("Found unhandled dhcp packet type: {:?}", x);
             None
         },
     }
 }
+
 
 fn handle_packet(
         tx: &mut std::boxed::Box<pnet::datalink::DataLinkSender>,

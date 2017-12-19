@@ -112,6 +112,19 @@ impl Allocator {
         lease.lease_start = lease::SerializeableTime(time::get_time());
     }
 
+    pub fn free_lease(&mut self, client: &lease::Client<EthernetAddr>, addr: Ipv4Addr) {
+        if let Some(index) = self.leases.iter().position(|l| l.assigned == addr) {
+            {
+                let lease = &self.leases[index];
+                if !client.overlapping(&lease.client) {
+                    warn!("Some client tried to release another clients allocation!");
+                    return;
+                }
+            }
+            self.leases.remove(index);
+        }
+    }
+
     /* Get the allocations we could reuse because there's no current lease
      * for them (which would lock them
      */
