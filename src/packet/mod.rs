@@ -195,7 +195,7 @@ impl ClasslessRoute {
 
     fn get_octets(bits: u8) -> usize {
         let len = bits / 8;
-        if len % 8 != 0 {
+        if bits % 8 != 0 {
             return len as usize + 1;
         }
 
